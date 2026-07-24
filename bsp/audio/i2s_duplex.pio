@@ -1,8 +1,14 @@
 ; bsp/audio/i2s_duplex.pio — full-duplex I2S, MCU supplies all clocks (codec=slave).
 ; 16 bits/channel, MSB first, 32-bit frame [L16|R16]. side-set bit0=LRCK, bit1=BCLK.
 ; OUT pin = SPK_DIN (GPIO5, DAC), IN pin = SPK_DOUT (GPIO4, ADC).
-; Per counted bit: out on BCLK-low, sample (in) on BCLK-high (rising edge), count on
-; BCLK-low -> 3 PIO instr/bit, 1 BCLK pulse/bit, 32 bits/frame => PIO clock = 96*fs.
+; Per counted bit: out on BCLK-low (2 cycles), sample (in) on BCLK-high (rising
+; edge), count on BCLK-high -> 4 PIO CYCLES/bit, 32 bits/frame => PIO clock =
+; 128*fs, so the SM divider is the INTEGER 2*ticks (ticks = clk_sys/(256*fs),
+; the MCLK divider). CRITICAL: the previous 3-cycle/bit version needed the
+; FRACTIONAL divider 8*ticks/3, whose 8.8-bit rounding made LRCK drift against
+; MCLK by one audio sample every ~0.84 s at 48 kHz (~7.8 s at 16 kHz) — the
+; MCLK-clocked codec slipped a sample each time: a metronomic audible click
+; (bench-measured and root-caused 2026-07-24). Keep cycles/bit a power of two.
 ;
 ; ALIGNMENT KNOB (bring-up risk, same as the proven RX program): if RX peaks stay at
 ; the floor while the mic is driven, move the `in pins,1` to the other BCLK phase, or
@@ -11,18 +17,18 @@
 .side_set 2
 
 .wrap_target
-    set x, 14            side 0b00   ; LEFT: LRCK=0, BCLK=0
+    set x, 14            side 0b00       ; LEFT: LRCK=0, BCLK=0
 left_bit:
-    out pins, 1          side 0b00   ; BCLK low: present DAC bit
-    in pins, 1           side 0b10   ; BCLK high: latch ADC bit (rising edge)
-    jmp x-- left_bit     side 0b00   ; BCLK low: advance
-    out pins, 1          side 0b00   ; 16th DAC bit (left)
-    in pins, 1           side 0b10   ; 16th ADC bit (left)
-    set x, 14            side 0b01   ; RIGHT: LRCK=1, BCLK=0
+    out pins, 1          side 0b00 [1]   ; BCLK low x2: present DAC bit
+    in pins, 1           side 0b10       ; BCLK high: latch ADC bit (rising)
+    jmp x-- left_bit     side 0b10       ; BCLK high: advance
+    out pins, 1          side 0b00 [1]   ; 16th DAC bit (left), low x2
+    in pins, 1           side 0b10       ; 16th ADC bit (left)
+    set x, 14            side 0b01       ; RIGHT: LRCK=1, BCLK=0
 right_bit:
-    out pins, 1          side 0b01
-    in pins, 1           side 0b11   ; BCLK high, LRCK high: sample
-    jmp x-- right_bit    side 0b01
-    out pins, 1          side 0b01   ; 16th DAC bit (right)
-    in pins, 1           side 0b11   ; 16th ADC bit (right)
+    out pins, 1          side 0b01 [1]
+    in pins, 1           side 0b11       ; BCLK high, LRCK high: sample
+    jmp x-- right_bit    side 0b11
+    out pins, 1          side 0b01 [1]   ; 16th DAC bit (right), low x2
+    in pins, 1           side 0b11       ; 16th ADC bit (right)
 .wrap
