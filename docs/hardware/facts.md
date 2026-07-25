@@ -177,6 +177,29 @@ the nominal sample rate, so `LRCK == MCLK/256` exactly and data-in == data-out. 
 `ticks` is the MCLK PWM wrap). Net pitch is +0.06 % (16009 vs 16000 Hz), inaudible.
 Do **not** "simplify" this back to `clk_sys / (96*fs)` — that reintroduces the tick.
 
+## Audio: RP2350-E5 requires dma_channel_cleanup(), not dma_channel_abort(), to stop the TX chain
+
+`audio_i2s_duplex_play_loop()` and `audio_i2s_duplex_play_stream_loop()` configure the two
+TX DMA channels to chain to each other (`channel_config_set_chain_to(&c, s_tx_dma[i ^ 1])`
+on both), so each channel's completion re-triggers the other and playback loops with zero
+CPU involvement. RP2350 **errata RP2350-E5** (see the RP2350 datasheet) says that aborting a
+channel which is another channel's `CHAIN_TO` target can leave that other channel
+re-triggerable with stale configuration, even though it was never itself aborted — a bare
+`dma_channel_abort()` on one of a chained pair is not sufficient to fully stop playback. The
+Pico SDK's `hardware/dma.h` documents this directly in the doc comment above
+`dma_channel_abort()` and ships an errata-aware helper, `dma_channel_cleanup()`
+(`hardware/dma.h`, implemented in `hardware_dma`'s `dma.c`), which clears the channel's
+`CHAIN_TO` (to itself) and `EN` bits, disables its IRQs, *then* aborts it, and finally clears
+its IRQ status — the IRQ-disable-first step also suppresses the spurious completion IRQ
+`dma_channel_abort()` can raise mid-abort, which matters for `play_stream_loop()` since it
+enables `DMA_IRQ_0` on both TX channels.
+
+**Rule:** `audio_i2s_duplex_play_stop()` (`bsp/audio/audio_i2s_duplex.c`) calls
+`dma_channel_cleanup()` on both TX channels, not `dma_channel_abort()`. This is safe to call
+repeatedly across playback cycles: `play_loop()`/`play_stream_loop()` rewrite the channel's
+full CTRL word (`dma_channel_configure()` → `dma_channel_set_config()`) on every re-arm, so
+the cleared `EN`/`CHAIN_TO` state from the previous stop is not sticky.
+
 ## Hardware verification status
 
 The `hello_display` on-hardware smoke test **passed on 2026-07-01** (RP2350 rev 3,

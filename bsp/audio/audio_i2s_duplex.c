@@ -127,8 +127,22 @@ void audio_i2s_duplex_play_stream_loop(const uint32_t *buf, uint frames) {
 
 void audio_i2s_duplex_play_stop(void) {
     s_stream_buf = NULL;
+    // The two TX channels chain to each other (channel_config_set_chain_to() in
+    // play_loop/play_stream_loop), and RP2350 errata RP2350-E5 says aborting a
+    // channel that is another channel's CHAIN_TO target can leave that other
+    // channel re-triggerable with stale CTRL, even though it was never itself
+    // aborted. A bare dma_channel_abort() is not safe here for that reason.
+    // dma_channel_cleanup() (hardware/dma.h) is the SDK's errata-aware helper:
+    // it clears CHAIN_TO (to self) and EN on the channel before aborting it,
+    // and disables the channel's IRQs first, which also suppresses the
+    // spurious completion IRQ dma_channel_abort() can raise mid-abort -- that
+    // matters here because play_stream_loop() enables DMA_IRQ_0 on both
+    // channels. The cleared EN/CHAIN_TO is not sticky: play_loop() and
+    // play_stream_loop() rewrite the full CTRL word (dma_channel_configure()
+    // -> dma_channel_set_config()) on every re-arm, so EN and CHAIN_TO are
+    // restored from scratch the next time playback starts.
     for (int i = 0; i < 2; i++)
-        if (s_tx_dma[i] >= 0) dma_channel_abort(s_tx_dma[i]);
+        if (s_tx_dma[i] >= 0) dma_channel_cleanup(s_tx_dma[i]);
     // Clear the TX FIFO so the DAC sits at mid-scale (silence) during the baseline.
     pio_sm_clear_fifos(DPX_PIO, DPX_SM);
 }
