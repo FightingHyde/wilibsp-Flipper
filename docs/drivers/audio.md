@@ -21,11 +21,32 @@ board_init();                 // 250 MHz; also brings up I2C1 + ioexp
 codec_nau88c10_init();        // NAU88C10 register sequence (16 kHz, speaker)
 codec_nau88c10_input_ok();    // optional: DIAGs rev + PM2, returns bool
 codec_nau88c10_dac_mute(false);
-audio_i2s_duplex_init(16000); // MCLK PWM + PIO0 SM0; RX runs immediately
-audio_capture_start();        // ping-pong RX DMA -> PCM blocks (SHARED DMA_IRQ_0)
+audio_i2s_duplex_init(16000); // MCLK PWM + PIO0 SM0; RX autopush starts OFF
+audio_capture_start();        // ONLY if you want mic input. Starts the ping-pong
+                              // RX DMA (SHARED DMA_IRQ_0) and enables RX autopush.
+                              // Playback-only apps SKIP this line entirely.
 ```
 
+Note `codec_nau88c10_input_ok()` gates on the **ADC/mic** path (`reg 0x02 ==
+0x0015`) as well as the silicon revision. It is a fine bring-up check for a
+duplex app, but a playback-only app that uses it as a generic "is the codec
+alive?" probe is over-testing — use the revision read alone if the mic path is
+irrelevant to you.
+
 ## Playback
+
+**Playback-only apps: do NOT call `audio_i2s_duplex_rx_enable()`** (and you do
+not need `audio_capture_start()`). One PIO state machine clocks *both*
+directions, so the RX and TX halves are not independent: if RX autopush is on
+and nothing drains the RX FIFO, the `in pins,1` stalls the state machine the
+moment that 4-deep FIFO fills — about 4 frames, ~250 µs at 16 kHz. A stalled SM
+stops driving BCLK/LRCK, so **the DAC goes silent too**. The symptom is a tone
+that plays for a quarter of a millisecond and then permanent silence, with the
+codec registers all reading correct.
+
+`audio_i2s_duplex_init()` therefore leaves autopush **off**, and
+`audio_capture_start()` turns it on for you. Confirm a suspected stall by
+reading `PIO0->FDEBUG` (`0x50200008`): `RXSTALL` is bits 3:0 and is sticky.
 
 The TX path is a zero-CPU DMA read-ring over a pre-filled buffer. The buffer
 must hold whole tone periods, be a power-of-two **bytes**, and be aligned to

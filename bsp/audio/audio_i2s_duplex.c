@@ -52,7 +52,14 @@ void audio_i2s_duplex_init(uint32_t sample_rate) {
     sm_config_set_in_pins(&c, PIN_AUDIO_DIN);             // GPIO4 = SPK_DOUT (ADC)
     sm_config_set_sideset_pins(&c, PIN_AUDIO_LRCK);       // bit0=LRCK(6), bit1=BCLK(7)
     sm_config_set_out_shift(&c, false, true, 32);         // MSB first, autopull 32
-    sm_config_set_in_shift(&c, false, true, 32);          // MSB first, autopush 32
+    // Autopush starts OFF -- see audio_i2s_duplex_rx_enable(). One state machine
+    // drives BOTH directions, so with autopush ON and nothing draining the RX FIFO
+    // the `in pins,1` wedges the SM the moment the 4-deep RX FIFO fills (~4 frames,
+    // 250 us at 16 kHz) -- which kills BCLK/LRCK and the DAC with it. A
+    // playback-only app would get ~250 us of tone and then permanent silence.
+    // With autopush off the ISR just shifts and discards, so TX runs standalone.
+    // audio_capture_start() turns it on when RX data is actually wanted.
+    sm_config_set_in_shift(&c, false, false, 32);         // MSB first, autopush OFF
 
     pio_gpio_init(DPX_PIO, PIN_AUDIO_DATA);
     pio_gpio_init(DPX_PIO, PIN_AUDIO_LRCK);
@@ -76,6 +83,24 @@ void audio_i2s_duplex_init(uint32_t sample_rate) {
     float div = (float)(8u * ticks) / 3.0f;
     pio_sm_set_clkdiv(DPX_PIO, DPX_SM, div);
     pio_sm_set_enabled(DPX_PIO, DPX_SM, true);
+}
+
+void audio_i2s_duplex_rx_enable(void) {
+    // Turn autopush on so the ADC half of the frame lands in the RX FIFO. Only safe
+    // once something drains that FIFO every frame (audio_capture's ping-pong DMA):
+    // an undrained RX FIFO stalls the shared state machine and takes playback down
+    // with it.
+    //
+    // While autopush was off the ISR kept shifting without ever resetting its bit
+    // counter, so it sits at an arbitrary phase. Enabling autopush on top of that
+    // would push at the wrong bit boundary and swap the L/R slots. pio_sm_restart()
+    // zeroes the ISR/OSR shift counters (it does not touch the PC or the FIFOs), so
+    // the first pushed word is frame-aligned. Clear the FIFOs too for a clean start.
+    //
+    // Call this BEFORE arming playback: it drops anything already queued for TX.
+    pio_sm_clear_fifos(DPX_PIO, DPX_SM);
+    pio_sm_restart(DPX_PIO, DPX_SM);
+    hw_set_bits(&DPX_PIO->sm[DPX_SM].shiftctrl, PIO_SM0_SHIFTCTRL_AUTOPUSH_BITS);
 }
 
 volatile const void *audio_i2s_duplex_rxf(void) {

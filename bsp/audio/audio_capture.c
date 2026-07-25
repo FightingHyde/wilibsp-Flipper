@@ -43,6 +43,10 @@ void audio_capture_start(void) {
     start_channel(s_dma[0], s_dma[1], s_buf[0]);
     start_channel(s_dma[1], s_dma[0], s_buf[1]);
 
+    // The duplex driver leaves RX autopush off so playback works standalone; turn
+    // it on now that these two channels will drain the FIFO every frame.
+    audio_i2s_duplex_rx_enable();
+
     dma_channel_set_irq0_enabled(s_dma[0], true);
     dma_channel_set_irq0_enabled(s_dma[1], true);
     // SHARED handler: the ST7796 flush already owns a shared handler on DMA_IRQ_0

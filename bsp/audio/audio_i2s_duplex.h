@@ -5,9 +5,18 @@
 #include "hardware/pio.h"
 
 // Start MCLK (256*fs PWM on GPIO22), load the duplex program on PIO0 SM0, set
-// pindirs (GPIO5/6/7 out, GPIO4 in) + clkdiv, enable the SM. RX runs immediately;
-// the TX FIFO outputs 0 (DAC mid-scale silence) until play_loop() is armed.
+// pindirs (GPIO5/6/7 out, GPIO4 in) + clkdiv, enable the SM. The DAC idles at
+// mid-scale silence until play_loop() is armed.
+//
+// RX (autopush) starts DISABLED so that playback works standalone. One state
+// machine clocks both directions, so an RX FIFO that nobody drains stalls the SM
+// and silences the DAC too -- call audio_i2s_duplex_rx_enable() only alongside a
+// consumer. audio_capture_start() does this for you.
 void audio_i2s_duplex_init(uint32_t sample_rate);
+
+// Enable RX autopush. ONLY call when something drains the RX FIFO every frame --
+// audio_capture_start() already does. Playback-only apps must never call this.
+void audio_i2s_duplex_rx_enable(void);
 
 // RX FIFO plumbing for audio_capture (same shape as the old RX driver).
 volatile const void *audio_i2s_duplex_rxf(void);

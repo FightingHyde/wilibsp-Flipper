@@ -154,6 +154,32 @@ removed once the standalone-project approach was chosen. Don't tell an agent
 to run `cmake --preset host-test`; it doesn't exist. The only preset defined
 today is `target` (for on-device builds).
 
+## Audio: an undrained RX FIFO silences the DAC (duplex SM coupling)
+
+`i2s_duplex.pio` runs **one** state machine for both directions — it interleaves
+`out pins,1` (DAC) with `in pins,1` (ADC) and side-sets BCLK/LRCK. So RX and TX
+are not independent paths that happen to share pins: they share the *instruction
+stream*.
+
+With RX autopush enabled and nothing draining the RX FIFO, the `in` stalls the
+state machine as soon as that 4-deep FIFO fills — 4 frames, ~250 µs at 16 kHz.
+A stalled SM stops side-setting BCLK/LRCK and stops consuming TX words, so the
+**DAC goes silent too**. A playback-only app gets a quarter-millisecond of tone
+and then permanent silence, while every codec register still reads correct — an
+extremely misleading failure.
+
+Found 2026-07-25 building wilidoro's audio: it skipped `audio_capture_start()`
+(reasonably — it never wants mic input, and skipping it avoids a `DMA_IRQ_0`
+handler) and got total silence. Confirmed over SWD without a reflash: clear
+`PIO0->FDEBUG` (`0x50200008`), hand-feed 8 words to `TXF0` (`0x50200010`), then
+re-read — `RXSTALL` (bits 3:0, sticky) latches, `FSTAT` shows RXFULL, and
+`FLEVEL` shows RX0=4 with words still stranded in TX.
+
+**Rule:** `audio_i2s_duplex_init()` leaves autopush **off** so playback works
+standalone. Only `audio_i2s_duplex_rx_enable()` turns it on, and only
+`audio_capture_start()` should call it — never enable RX without a consumer
+draining it every frame.
+
 ## Audio: lock LRCK to MCLK/256 (DAC sample-slip tick)
 
 The NAU88C10 runs **MCLK-direct** (reg 0x06 = 0), so its DAC/ADC sample rate is set
