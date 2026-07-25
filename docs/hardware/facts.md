@@ -164,16 +164,27 @@ stream*.
 With RX autopush enabled and nothing draining the RX FIFO, the `in` stalls the
 state machine as soon as that 4-deep FIFO fills — 4 frames, ~250 µs at 16 kHz.
 A stalled SM stops side-setting BCLK/LRCK and stops consuming TX words, so the
-**DAC goes silent too**. A playback-only app gets a quarter-millisecond of tone
-and then permanent silence, while every codec register still reads correct — an
-extremely misleading failure.
+**DAC dies with it**, while every codec register still reads correct.
+
+**Recognise it by ear: a CLICK per note instead of a tone.** Each note plays
+only its first ~250 µs (a fraction of one cycle) before the SM wedges. It is not
+permanent silence — anything that calls `audio_i2s_duplex_play_stop()` between
+notes clears the FIFOs and briefly unwedges the SM — so a chime degrades into
+pitchless clicks.
 
 Found 2026-07-25 building wilidoro's audio: it skipped `audio_capture_start()`
 (reasonably — it never wants mic input, and skipping it avoids a `DMA_IRQ_0`
-handler) and got total silence. Confirmed over SWD without a reflash: clear
+handler) and playback broke.
+
+Confirmed two ways on RP2350 rev 3. **Registers, no reflash:** clear
 `PIO0->FDEBUG` (`0x50200008`), hand-feed 8 words to `TXF0` (`0x50200010`), then
 re-read — `RXSTALL` (bits 3:0, sticky) latches, `FSTAT` shows RXFULL, and
-`FLEVEL` shows RX0=4 with words still stranded in TX.
+`FLEVEL` shows RX0=4 with words still stranded in TX; with the fix all 8 words
+are consumed and nothing stalls. **A/B on the live device:** toggling just the
+AUTOPUSH bit (`SM0_SHIFTCTRL` `0x502000d0` bit 16) on one unchanged firmware
+image flipped the onboard speaker between clean tones and clicks — mic-measured
+tonal magnitude at the intended note ~1100 with autopush off vs <4 with it on,
+a ~300x difference, and the dominant frequency stopped tracking the note.
 
 **Rule:** `audio_i2s_duplex_init()` leaves autopush **off** so playback works
 standalone. Only `audio_i2s_duplex_rx_enable()` turns it on, and only

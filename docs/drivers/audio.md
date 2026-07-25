@@ -40,9 +40,16 @@ not need `audio_capture_start()`). One PIO state machine clocks *both*
 directions, so the RX and TX halves are not independent: if RX autopush is on
 and nothing drains the RX FIFO, the `in pins,1` stalls the state machine the
 moment that 4-deep FIFO fills — about 4 frames, ~250 µs at 16 kHz. A stalled SM
-stops driving BCLK/LRCK, so **the DAC goes silent too**. The symptom is a tone
-that plays for a quarter of a millisecond and then permanent silence, with the
-codec registers all reading correct.
+stops driving BCLK/LRCK, so **the DAC dies with it**.
+
+**The symptom to recognise: you hear a CLICK per note instead of a tone**, with
+every codec register reading correct. Each note gets only its first ~250 µs — a
+fraction of one cycle — before the SM wedges. It is not permanent silence,
+because any code path that calls `audio_i2s_duplex_play_stop()` between notes
+clears the FIFOs and briefly unwedges the SM, so a chime degrades into a burst
+of clicks with no pitch. Measured on a mic (RP2350 rev 3, 2026-07-25): tonal
+magnitude at the intended frequency fell from ~1100 to <4 — about 300x — and
+the dominant frequency stopped tracking the note at all.
 
 `audio_i2s_duplex_init()` therefore leaves autopush **off**, and
 `audio_capture_start()` turns it on for you. Confirm a suspected stall by
