@@ -57,16 +57,25 @@ static void synth_frame(void)
     uint8_t sum = 0;
     for (int i = 0; i < UARTKBD_FRAME_LEN - 1; i++) sum = (uint8_t)(sum + f[i]);
     f[UARTKBD_FRAME_LEN - 1] = sum;
-    /* accept_frame() marks charger data valid on ANY checksum-valid frame,
-     * synthetic or real. Save/restore charger_valid around the feed so a
-     * synthetic frame preserves it exactly rather than setting it: before any
-     * real charger data has arrived, restoring false stops uartkbd_charger()
-     * from fabricating engineering-unit readings out of the zeroed
-     * charger_raw above; once real data has made it true, the restore is a
+    /* accept_frame() overwrites both charger_valid and flags on ANY
+     * checksum-valid frame, synthetic or real, and f[3]/f[4] above are the
+     * idle wire bytes for the connection-detect bits too — decode_flags()
+     * reads f[3]&0x04 (AUDIO), f[3]&0x02 (HOTPLUG), f[4]&0x04 (USB), all
+     * zero in the synthetic frame. Left alone, injecting a button would
+     * momentarily report all three as absent until the next real frame (up
+     * to ~500 ms). Save/restore both charger_valid and flags around the feed
+     * so a synthetic frame preserves them exactly rather than setting them:
+     * before any real charger data has arrived, restoring charger_valid
+     * false stops uartkbd_charger() from fabricating engineering-unit
+     * readings out of the zeroed charger_raw above; restoring flags always
+     * keeps the last real AUDIO/HOTPLUG/USB state intact across the
+     * synthetic frame. Once real data has arrived, both restores are a
      * no-op and the charger_raw passthrough still works as before. */
-    bool had_charger = s_parser.charger_valid;
+    bool    had_charger = s_parser.charger_valid;
+    uint8_t had_flags   = s_parser.flags;
     for (int i = 0; i < UARTKBD_FRAME_LEN; i++) uartkbd_parse_byte(&s_parser, f[i]);
     s_parser.charger_valid = had_charger;
+    s_parser.flags         = had_flags;
 }
 
 void uartkbd_init(void)
