@@ -160,8 +160,16 @@ static void do_capture(int surface, int x, int y, int w, int h, int scale)
     if (scale < 1) scale = 1;
     if (x < 0) x = 0;
     if (y < 0) y = 0;
-    if (w <= 0 || x + w > sw) w = sw - x;
-    if (h <= 0 || y + h > sh) h = sh - y;
+    if (x >= sw || y >= sh) {          /* origin outside the surface */
+        reply("ERR rect\n");
+        return;
+    }
+    /* Clamp with subtraction, never `x + w`: both are host-controlled ints and
+     * their sum can overflow, wrapping negative and skipping the clamp
+     * entirely. After the origin check above, 0 <= x < sw, so `sw - x` is a
+     * safe positive int and the comparison cannot overflow. */
+    if (w <= 0 || w > sw - x) w = sw - x;
+    if (h <= 0 || h > sh - y) h = sh - y;
     if (w <= 0 || h <= 0) {
         reply("ERR rect\n");
         return;
