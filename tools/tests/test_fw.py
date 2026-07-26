@@ -184,3 +184,37 @@ def test_agentio_enter_cleans_up_leaked_process_on_timeout(monkeypatch):
         pass
 
     assert fake.terminated is True
+
+def test_agentio_capture_surfaces_err_reply_instead_of_hanging(monkeypatch):
+    # Regression: every CAP error reply ("ERR rect\n" = 9 bytes, "ERR
+    # surface\n" = 12 bytes) is shorter than AGENTIO_HEADER_LEN (18). The old
+    # agentio_capture() did an unconditional recv_exact(AGENTIO_HEADER_LEN)
+    # first, which can never return for these replies — the CLI would block
+    # until the raw socket timeout instead of raising the server's message.
+    monkeypatch.setattr(fw, "_port_open", lambda port: True)  # skip spawning OpenOCD
+
+    class FakeSocket:
+        """Just enough of the socket API for _Agentio: recv() hands back
+        bytes from a fixed buffer, one chunk at a time, like a real socket."""
+        def __init__(self, data):
+            self.data = data
+            self.pos = 0
+        def settimeout(self, t):
+            pass
+        def sendall(self, b):
+            pass
+        def recv(self, n):
+            chunk = self.data[self.pos:self.pos + n]
+            self.pos += len(chunk)
+            return chunk
+        def close(self):
+            pass
+
+    fake = FakeSocket(b"ERR rect\n")
+    monkeypatch.setattr(fw.socket, "create_connection", lambda *a, **k: fake)
+
+    try:
+        fw.agentio_capture("lcd", (0, 0, 0, 0), 1, "unused.png")
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "rect" in str(e)

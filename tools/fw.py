@@ -398,10 +398,16 @@ def agentio_capture(surface, crop, scale, out_path):
     x, y, w, h = crop if crop else (0, 0, 0, 0)
     with _Agentio() as a:
         a.send(f"CAP {SURFACES[surface]} {x} {y} {w} {h} {scale}")
-        hdr = a.recv_exact(AGENTIO_HEADER_LEN)
-        if hdr[:4] != AGENTIO_MAGIC:
-            # a validation failure answers with a plain ERR line instead
-            raise RuntimeError(hdr.decode("ascii", "replace").strip())
+        # Every ERR reply ("ERR rect\n", "ERR surface\n", ...) is shorter than
+        # the 18-byte capture header, so an unconditional recv_exact(18) can
+        # never return for one — it would hang until the socket times out
+        # instead of surfacing the server's error text. Check the 4-byte
+        # magic first; only read the rest of the header once it matches.
+        magic = a.recv_exact(4)
+        if magic != AGENTIO_MAGIC:
+            rest = a.recv_line()   # finish reading the "ERR <reason>" line
+            raise RuntimeError((magic.decode("ascii", "replace") + rest).strip())
+        hdr = magic + a.recv_exact(AGENTIO_HEADER_LEN - 4)
         ow, oh = struct.unpack(">HH", hdr[10:14])
         payload_len = struct.unpack(">I", hdr[14:18])[0]
         payload = a.recv_exact(payload_len)
