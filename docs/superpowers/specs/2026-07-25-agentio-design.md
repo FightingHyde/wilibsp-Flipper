@@ -25,13 +25,14 @@ PNG it can look at.
    single OpenOCD instance between diagnostics and the harness.
 4. **Apps are `copy_to_ram`** (512 KB SRAM budget), so a 300 KB shadow
    framebuffer lives in PSRAM, not SRAM.
-5. **PSRAM offset 0 is already occupied.** `hello_keyboard` and
-   `hello_charger` both place a 480x320 framebuffer at raw `PSRAM_BASE`.
-   `bsp/platform/psram_layout.h` — which claims to be the single source of
-   truth for PSRAM regions — is a stale harvest artifact: it `#include`s
-   `ui/screen_analyzer.h`, which does not exist in this repo, so nothing can
-   include it. The shadow buffer must claim a documented offset well clear of
-   zero.
+5. **PSRAM is linker-allocated (SDK 2.3.0).** The BSP moved to the SDK's
+   `hardware_psram`: `bsp/boards/freewili2.h` sets `PICO_PSRAM_CS_PIN` /
+   `PICO_PSRAM_SIZE_BYTES`, PSRAM comes up during `runtime_init`, and buffers
+   are placed with `__uninitialized_psram("group")`. The shadow framebuffer
+   needs no hand-picked offset and cannot collide with app buffers — the
+   linker allocates it. (The earlier draft of this spec reserved
+   `PSRAM_BASE + 0x00600000` by hand and reasoned about `psram_layout.h`;
+   both are obsolete, and `psram_layout.h` has been deleted.)
 
 ## Scope
 
@@ -108,13 +109,16 @@ PSRAM framebuffers flushed whole-screen (`hello_keyboard`, `hello_charger`),
 and LVGL (`orca_browser`, whose display port flushes through
 `st7796_flush_async`).
 
-The shadow is 480x320 **wire-order** (big-endian) RGB565 = 307,200 bytes, at
-`PSRAM_BASE + 0x00600000` (6 MB in). That clears both the app framebuffers at
-offset 0 and the capture-clip convention in `psram_layout.h`, which spans 1 MB
-to 5 MB (`PSRAM_CAPTURE_OFFSET 0x100000` plus `CAPTURE_MAX_DURS` = 4 MB of
-durations), and leaves the buffer inside the 8 MB device. The offset is defined
-in `agentio.h`; `psram_layout.h` is left alone (fixing its dead include is out
-of scope for this work).
+The shadow is 480x320 **wire-order** (big-endian) RGB565 = 307,200 bytes,
+declared in `agentio.c` as:
+
+```c
+static uint16_t __uninitialized_psram("agentio") s_shadow[ST7796_W * ST7796_H];
+```
+
+The linker places it and guarantees it does not overlap any other PSRAM buffer,
+so there is no offset to pick, document, or keep in sync. Under `FW2_AGENTIO=0`
+the declaration compiles out entirely and costs no PSRAM.
 
 ### DVI surface
 
