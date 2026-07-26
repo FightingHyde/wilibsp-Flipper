@@ -123,7 +123,19 @@ can stay in an app unconditionally at zero cost:
 - No PSRAM shadow allocation (the 307,200-byte `s_shadow` buffer disappears).
 - No RTT channel 1 buffers (`s_up_buf` 4 KB, `s_down_buf` 256 B) and no
   capture row scratch (`s_row`/`s_enc`, ~2 KB) in `.bss`.
-- No injection hooks compiled into the draw path.
+- No injection hooks compiled into the *draw* path — `agentio_shadow_note_window`/
+  `_note_pixels` collapse to nothing, so `st7796.c` carries zero overhead.
+
+**This is not a whole-harness guarantee — only `bsp/agentio/agentio.c` and
+its draw-path hooks collapse.** `FW2_AGENTIO=0` does *not* remove the
+injection plumbing on the input side, because that code was written directly
+into the input drivers, not gated behind the same switch:
+`ft6336.c` still carries `s_inj_down`/`s_inj_x`/`s_inj_y` and always checks
+them in `ft6336_poll()`; `uartkbd_parse.c`'s button decode always
+`| p->inject_mask`s in the injected bits; and `uartkbd_init()` always primes
+the parser with one synthetic frame at boot regardless of the switch. The
+bytes are a handful and the behavior is inert with no `fw` client attached,
+but "zero cost" above describes the capture/RTT/draw-hook side only.
 
 Because `s_shadow` (and the rest of `agentio.c`) is referenced only from
 `agentio_init()`, `--gc-sections` strips the whole harness out of any app
@@ -219,14 +231,26 @@ the host tells these apart by checking the first 4 bytes against
 
 ## Limitations
 
-- **Capture blocks the app loop.** `do_capture()` walks every output row
-  synchronously inside `agentio_task()`, and the RTT up-buffer is configured
+- **Capture blocks the app loop — with interrupts masked, not just the loop
+  stalled.** `do_capture()` walks every output row synchronously inside
+  `agentio_task()`, and the RTT up-buffer is configured
   `SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL` — a capture must not silently drop
-  pixels, so it blocks until the host has drained the whole payload. A large
-  or slow capture holds up everything else in the loop, including
-  `uartkbd_task()`; a keyboard frame arriving mid-transfer can be lost (the
-  UART DMA ring survives ~164 ms of stall per `docs/drivers/keyboard.md`, but
-  a big enough capture can still exceed that).
+  pixels, so it blocks until the host has drained the whole payload.
+  SEGGER's blocking write spins with `BASEPRI` raised, i.e. **with
+  interrupts masked for the duration**, not merely the app's own loop
+  paused. Any IRQ-driven subsystem glitches during a capture — audio in
+  particular. The keyboard DMA ring and the DVI scanout are unaffected
+  by this specific effect because both are IRQ-free by design (the UART DMA
+  ring drains in software from `uartkbd_task()`, and the HSTX scanout is a
+  zero-IRQ chained DMA) — but a keyboard frame can still be lost if the
+  capture's *total* stall exceeds the ring's ~164 ms budget (see
+  `docs/drivers/keyboard.md`), independent of the interrupt-masking effect.
+- **If the host disappears mid-capture, the target hangs until a power
+  cycle.** A capture spins with interrupts masked until the RTT up-buffer
+  drains; if the host goes away first — Ctrl+C, or the CLI's cleanup path
+  killing OpenOCD after an exception — nothing ever drains it, so the wait
+  never ends. There is no watchdog in this BSP to recover from that. Treat a
+  large capture as something you do not want to interrupt.
 - **DVI capture requires DVI to already be running.** `--surface dvi` reads
   `hstx_dvi_region_base()`/`hstx_dvi_video_stride()`/`hstx_dvi_region_h()`
   (plus the fixed `HSTX_VID_W_MAX` for width); until `hstx_dvi_init()` has
@@ -252,6 +276,14 @@ the host tells these apart by checking the first 4 bytes against
   `fw` invocations beyond what's described above (button/TYPE queues); two
   concurrent `fw` processes will contend for the same debug probe and RTT
   connection.
+- **Injection state is a single global mask, not per-caller.** `fw hold
+  green` sets the mask directly (`BTN`); a later `fw press`/`fw type` in a
+  separate invocation queues edges against — and can clobber — that same
+  mask. There is no "hold this, inject that on top, then restore the hold"
+  composition. Relatedly, `fw press a,b` opens a separate OpenOCD/RTT
+  session per button rather than one session for the whole list, so a
+  multi-button press is several independent round trips, not one atomic
+  command.
 
 ## Dependencies
 
