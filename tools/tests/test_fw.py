@@ -141,3 +141,46 @@ def test_rtt_command_serves_both_channels():
 def test_main_print_dispatches_screenshot():
     # --print must not touch hardware
     fw.main(["screenshot", "--print"])
+
+def test_agentio_enter_cleans_up_leaked_process_on_timeout(monkeypatch):
+    # Regression: if OpenOCD never opens the RTT port within the deadline,
+    # __enter__ must still terminate the process it spawned. Python skips
+    # __exit__ when __enter__ raises, so without explicit cleanup inside
+    # __enter__ this would leak an OpenOCD process holding the debug probe.
+    monkeypatch.setattr(fw, "_port_open", lambda port: False)
+
+    class FakeProc:
+        def __init__(self):
+            self.terminated = False
+            self.killed = False
+        def poll(self):
+            return None  # still "running" the whole time
+        def terminate(self):
+            self.terminated = True
+        def wait(self, timeout=None):
+            return 0
+        def kill(self):
+            self.killed = True
+
+    fake = FakeProc()
+    monkeypatch.setattr(fw.subprocess, "Popen", lambda *a, **k: fake)
+
+    # A fake clock that advances past the 10s deadline in a few calls, and a
+    # no-op sleep, so the test does not actually wait 10 seconds.
+    class FakeClock:
+        def __init__(self):
+            self.t = 0
+        def time(self):
+            self.t += 3
+            return self.t
+
+    monkeypatch.setattr(fw.time, "time", FakeClock().time)
+    monkeypatch.setattr(fw.time, "sleep", lambda s: None)
+
+    try:
+        with fw._Agentio():
+            assert False, "expected RuntimeError"
+    except RuntimeError:
+        pass
+
+    assert fake.terminated is True

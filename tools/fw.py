@@ -324,29 +324,46 @@ class _Agentio:
         self.proc = None
         self.sock = None
 
-    def __enter__(self):
-        if not _port_open(AGENTIO_PORT):
-            self.proc = subprocess.Popen(rtt_command(), cwd=REPO_ROOT,
-                                         stdout=subprocess.DEVNULL,
-                                         stderr=subprocess.DEVNULL)
-            deadline = time.time() + 10
-            while time.time() < deadline and not _port_open(AGENTIO_PORT):
-                if self.proc.poll() is not None:
-                    raise RuntimeError("openocd exited — is the probe connected?")
-                time.sleep(0.2)
-        self.sock = socket.create_connection(("127.0.0.1", AGENTIO_PORT), timeout=10)
-        self.sock.settimeout(30)
-        return self
-
-    def __exit__(self, *exc):
+    def _cleanup(self):
         if self.sock:
-            self.sock.close()
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            self.sock = None
         if self.proc:
             self.proc.terminate()
             try:
                 self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+            self.proc = None
+
+    def __enter__(self):
+        try:
+            if not _port_open(AGENTIO_PORT):
+                self.proc = subprocess.Popen(rtt_command(), cwd=REPO_ROOT,
+                                             stdout=subprocess.DEVNULL,
+                                             stderr=subprocess.DEVNULL)
+                deadline = time.time() + 10
+                while time.time() < deadline and not _port_open(AGENTIO_PORT):
+                    if self.proc.poll() is not None:
+                        raise RuntimeError("openocd exited — is the probe connected?")
+                    time.sleep(0.2)
+                if not _port_open(AGENTIO_PORT):
+                    raise RuntimeError(
+                        f"openocd did not open port {AGENTIO_PORT} within 10s")
+            self.sock = socket.create_connection(("127.0.0.1", AGENTIO_PORT), timeout=10)
+            self.sock.settimeout(30)
+        except BaseException:
+            # __exit__ is NOT called when __enter__ raises, so a spawned OpenOCD
+            # would leak and keep holding the debug probe.
+            self._cleanup()
+            raise
+        return self
+
+    def __exit__(self, *exc):
+        self._cleanup()
         return False
 
     def send(self, line):
