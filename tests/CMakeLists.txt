@@ -213,3 +213,11 @@ target_include_directories(test_agentio_rle PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
     ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME agentio_rle COMMAND test_agentio_rle)
+
+add_executable(test_agentio_shadow
+    test_agentio_shadow.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/agentio/agentio_shadow.c)
+target_include_directories(test_agentio_shadow PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME agentio_shadow COMMAND test_agentio_shadow)
