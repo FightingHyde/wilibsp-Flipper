@@ -108,3 +108,36 @@ def test_needs_configure_detects_missing_and_stale_trees(tmp_path, monkeypatch):
     assert fw.needs_configure() is False                      # already on the pinned SDK
     cache.write_text("PICO_SDK_PATH:PATH=/somewhere/sdk/1.0.0\n")
     assert fw.needs_configure() is True                       # configured against another SDK
+
+def test_packbits_decode_handles_literal_and_repeat_runs():
+    # literal run of two units, then a repeat run of three
+    data = bytes([1, 0x12, 0x34, 0xAB, 0xCD, 0xFE, 0x07, 0xE0])
+    assert fw.packbits_decode(data, 5) == [0x1234, 0xABCD, 0x07E0, 0x07E0, 0x07E0]
+
+def test_packbits_decode_rejects_truncated_input():
+    try:
+        fw.packbits_decode(bytes([1, 0x12]), 2)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+def test_png_write_produces_a_valid_signature_and_size(tmp_path):
+    out = tmp_path / "x.png"
+    # 2x1 image: one red pixel, one blue
+    fw.png_write(str(out), 2, 1, [0xF800, 0x001F])
+    blob = out.read_bytes()
+    assert blob[:8] == b"\x89PNG\r\n\x1a\n"
+    assert b"IHDR" in blob and b"IDAT" in blob and b"IEND" in blob
+    # IHDR width/height are big-endian at a fixed offset
+    import struct
+    w, h = struct.unpack(">II", blob[16:24])
+    assert (w, h) == (2, 1)
+
+def test_rtt_command_serves_both_channels():
+    cmd = fw.rtt_command()
+    assert any(f"rtt server start {fw.RTT_PORT} 0" in c for c in cmd)
+    assert any(f"rtt server start {fw.AGENTIO_PORT} 1" in c for c in cmd)
+
+def test_main_print_dispatches_screenshot():
+    # --print must not touch hardware
+    fw.main(["screenshot", "--print"])
