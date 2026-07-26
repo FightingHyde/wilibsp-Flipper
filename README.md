@@ -25,10 +25,15 @@ orientation doc (command table, hardware invariants, how to add a driver).
 
 ## Quick start
 
-Prerequisites: Pico SDK 2.x + ARM GCC toolchain (`~/.pico-sdk`), CMake +
+Prerequisites: Pico SDK 2.3.0 + ARM GCC toolchain (`~/.pico-sdk`), CMake +
 Ninja, a cmsis-dap debug probe (e.g. Raspberry Pi Debug Probe) + OpenOCD for
 flashing/RTT, Python 3 for the `fw` CLI. Works the same on Windows
 (PowerShell) and Linux.
+
+The SDK and toolchain versions are pinned in `tools/fw.py`
+(`PICO_SDK_VERSION` / `PICO_TOOLCHAIN_VERSION`) and passed to CMake explicitly,
+so builds do not depend on `PICO_SDK_PATH` being exported in your shell. Each
+falls back to the newest version installed under `~/.pico-sdk`.
 
 ```bash
 fw build            # configure + build apps/hello_display for the RP2350B target

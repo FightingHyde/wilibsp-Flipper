@@ -43,6 +43,7 @@ Windows one — both just call `python tools/fw.py "$@"`).
 
 | Command             | What it does                                                                                                                            |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `fw configure`      | Configure `build/` against the pinned Pico SDK + toolchain (`--clean` wipes it first). Rarely needed directly — `fw build` calls it.    |
 | `fw build [app]`    | Configure + build `apps/<app>` for the RP2350B target via `cmake --build --preset target --target <app>` (default app: `hello_display`) |
 | `fw flash [app]`    | Program `build/apps/<app>/<app>.elf` over the cmsis-dap debug probe via OpenOCD (`tools/openocd/freewili2.cfg`)                         |
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
@@ -56,6 +57,15 @@ run without touching hardware).
 After `fw new-app <name>` you must add
 `add_subdirectory(apps/<name>)` to the top-level `CMakeLists.txt` yourself —
 the CLI only scaffolds the directory, it does not edit the top-level CMake.
+
+**You do not need to export `PICO_SDK_PATH`.** The SDK and toolchain versions
+are pinned in `tools/fw.py` (`PICO_SDK_VERSION = "2.3.0"`,
+`PICO_TOOLCHAIN_VERSION = "14_2_Rel1"`) and passed to CMake explicitly, each
+falling back to the newest version installed under `~/.pico-sdk`. `fw build`
+configures `build/` when it is missing, and wipes + reconfigures it when it was
+configured against a different SDK — so `rm -rf build` is safe and no longer
+strands the tree on whatever SDK happens to be in the shell environment.
+Bump the version by editing those constants, not by exporting anything.
 
 ## Invariants — do NOT relearn these the hard way
 

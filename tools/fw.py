@@ -2,6 +2,7 @@
 """fw — FreeWili2 BSP task runner (cross-platform).
 
 Commands:
+  fw configure       configure build/ against the pinned Pico SDK (--clean wipes first)
   fw build [app]     configure+build an app for the RP2350B target (default hello_display)
   fw flash [app]     program the app over the cmsis-dap debug probe via OpenOCD
   fw rtt             stream SEGGER RTT diagnostics
@@ -9,14 +10,104 @@ Commands:
   fw new-app <name>  scaffold apps/<name> from apps/template
 Add --print to any build/flash/test command to print the command(s) instead of running.
 """
-import argparse, pathlib, shutil, socket, subprocess, sys, time
+import argparse, os, pathlib, shutil, socket, stat, subprocess, sys, time
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+BUILD_DIR = REPO_ROOT / "build"
 DEFAULT_APP = "hello_display"
 OPENOCD_CFG = str(REPO_ROOT / "tools" / "openocd" / "freewili2.cfg")
 RTT_PORT = 9090
 # RP2350 SRAM is 0x20000000..0x20082000; scan the whole range for the RTT block.
 RTT_SETUP = 'rtt setup 0x20000000 0x82000 "SEGGER RTT"'
+
+# Pinned toolchain versions under ~/.pico-sdk. The SDK path used to come from an
+# ambient PICO_SDK_PATH (VS Code injects one) plus whatever landed in the CMake
+# cache, so `rm -rf build` silently changed SDK versions. Pinning here makes the
+# configure reproducible; each falls back to the newest installed version.
+PICO_SDK_VERSION       = "2.3.0"      # 2.3.0 adds hardware_psram (official PSRAM support)
+PICO_TOOLCHAIN_VERSION = "14_2_Rel1"  # the version every hardware-verified build used
+
+def _pico_sdk_dir(kind, pinned):
+    """~/.pico-sdk/<kind>/<pinned>, else the newest installed version, else None."""
+    root = pathlib.Path.home() / ".pico-sdk" / kind
+    if not root.is_dir():
+        return None
+    exact = root / pinned
+    if exact.is_dir():
+        return exact
+    versions = sorted((d for d in root.iterdir() if d.is_dir()), reverse=True)
+    return versions[0] if versions else None
+
+def _ninja():
+    """The Ninja bundled with the Pico SDK VS Code extension, if installed."""
+    root = pathlib.Path.home() / ".pico-sdk" / "ninja"
+    exe = "ninja.exe" if sys.platform == "win32" else "ninja"
+    if root.is_dir():
+        found = sorted(root.glob(f"*/{exe}"), reverse=True)
+        if found:
+            return found[0]
+    return pathlib.Path(shutil.which("ninja")) if shutil.which("ninja") else None
+
+def configure_command():
+    """`cmake --preset target` with the SDK/toolchain pinned explicitly, so the
+    configure does not depend on PICO_SDK_PATH being exported in the shell.
+    NEVER add -DPICO_BOARD here — the top-level CMakeLists owns it (AGENTS.md
+    invariant 1); overriding it on the command line reverts the board config."""
+    cmd = ["cmake", "--preset", "target"]
+    sdk = _pico_sdk_dir("sdk", PICO_SDK_VERSION)
+    if sdk:
+        cmd.append(f"-DPICO_SDK_PATH={sdk.as_posix()}")
+    tc = _pico_sdk_dir("toolchain", PICO_TOOLCHAIN_VERSION)
+    if tc:
+        cmd.append(f"-DPICO_TOOLCHAIN_PATH={tc.as_posix()}")
+    # The SDK's Findpicotool only finds a prebuilt picotool via picotool_DIR;
+    # without it every fresh configure rebuilds picotool from source (~2 min).
+    pt = _pico_sdk_dir("picotool", PICO_SDK_VERSION)
+    if pt and (pt / "picotool" / "picotoolConfig.cmake").exists():
+        cmd.append(f"-Dpicotool_DIR={(pt / 'picotool').as_posix()}")
+    ninja = _ninja()
+    if ninja:
+        cmd.append(f"-DCMAKE_MAKE_PROGRAM={ninja.as_posix()}")
+    return cmd
+
+def _cached_sdk_path():
+    """PICO_SDK_PATH recorded in build/CMakeCache.txt, or None if unconfigured."""
+    cache = BUILD_DIR / "CMakeCache.txt"
+    if not cache.exists():
+        return None
+    for line in cache.read_text(errors="replace").splitlines():
+        if line.startswith("PICO_SDK_PATH:"):
+            return line.split("=", 1)[1].strip()
+    return None
+
+def needs_configure():
+    """True when build/ is missing or was configured against a different SDK.
+    Changing PICO_SDK_PATH in place leaves stale SDK-derived cache entries, so a
+    version change is handled by wiping build/ and configuring fresh."""
+    cached = _cached_sdk_path()
+    if cached is None:
+        return True
+    sdk = _pico_sdk_dir("sdk", PICO_SDK_VERSION)
+    return sdk is not None and pathlib.Path(cached) != sdk
+
+def force_rmtree(path):
+    """shutil.rmtree that survives read-only files. On Windows the git pack
+    files under build/_deps/picotool-src are read-only, and a plain rmtree dies
+    on them with PermissionError."""
+    def on_error(func, p, _exc):
+        os.chmod(p, stat.S_IWRITE)
+        func(p)
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=on_error)
+    else:
+        shutil.rmtree(path, onerror=lambda f, p, e: on_error(f, p, e))
+
+def run_configure(clean=False):
+    if clean and BUILD_DIR.exists():
+        # flush: this print would otherwise buffer past the cmake output below
+        print(f"removing {BUILD_DIR} (stale SDK configuration)", flush=True)
+        force_rmtree(BUILD_DIR)
+    subprocess.run(configure_command(), cwd=REPO_ROOT, check=True)
 
 def build_command(app):
     return ["cmake", "--build", "--preset", "target", "--target", app]
@@ -153,6 +244,9 @@ def main(argv=None):
     for name in ("build", "flash"):
         sp = sub.add_parser(name); sp.add_argument("app", nargs="?", default=DEFAULT_APP)
         sp.add_argument("--print", dest="show", action="store_true")
+    sp = sub.add_parser("configure")
+    sp.add_argument("--clean", action="store_true", help="wipe build/ before configuring")
+    sp.add_argument("--print", dest="show", action="store_true")
     sp = sub.add_parser("rtt")
     sp.add_argument("--print", dest="show", action="store_true")
     sp.add_argument("-s", "--seconds", type=int, default=0,
@@ -161,7 +255,19 @@ def main(argv=None):
     sp = sub.add_parser("new-app"); sp.add_argument("name")
 
     a = p.parse_args(argv)
-    if a.cmd == "build":   _run(build_command(a.app), a.show)
+    if a.cmd == "configure":
+        if a.show:
+            _run(configure_command(), True)
+        else:
+            run_configure(clean=a.clean)
+    elif a.cmd == "build":
+        # Self-healing: a missing build/ — or one left over from another SDK
+        # version — is configured (wiping first on a version change) before the
+        # build, so `rm -rf build` no longer strands the tree on whatever SDK
+        # happens to be in the shell environment.
+        if not a.show and needs_configure():
+            run_configure(clean=BUILD_DIR.exists())
+        _run(build_command(a.app), a.show)
     elif a.cmd == "flash": _run(flash_command(a.app), a.show)
     elif a.cmd == "rtt":
         if a.show:

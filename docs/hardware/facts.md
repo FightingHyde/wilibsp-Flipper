@@ -269,7 +269,7 @@ repo combines the two (see `docs/drivers/ir.md` § Dependencies).
 
 - **Guard convention:** `bsp/sensors/*` splits pure logic from hardware with
   `#ifdef PICO_BUILD` — the Pico SDK defines `PICO_BUILD=1` for every target
-  build (sdk 2.2.0 `src/rp2350/pico_platform/CMakeLists.txt:11`) and the host
+  build (sdk 2.3.0 `src/rp2350/pico_platform/CMakeLists.txt:11`) and the host
   CTest tree does not, so the guards work with zero configuration. This
   coexists with the repo's older `#ifndef HOST_TEST` convention (ook_tx,
   scan_engine): HOST_TEST requires the test target to define it; PICO_BUILD

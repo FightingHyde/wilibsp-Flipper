@@ -70,3 +70,38 @@ def test_main_print_dispatches_build_command(capsys):
     fw.main(["build", "--print"])
     captured = capsys.readouterr()
     assert "cmake --build --preset target --target hello_display" in captured.out
+
+def test_configure_command_pins_sdk_and_uses_preset():
+    cmd = fw.configure_command()
+    assert cmd[:3] == ["cmake", "--preset", "target"]
+    sdk = [c for c in cmd if c.startswith("-DPICO_SDK_PATH=")]
+    # Only asserted when the pinned SDK is actually installed on this machine.
+    if fw._pico_sdk_dir("sdk", fw.PICO_SDK_VERSION) is not None:
+        assert sdk and sdk[0].endswith(fw.PICO_SDK_VERSION)
+
+def test_configure_command_never_overrides_pico_board():
+    # AGENTS.md invariant 1/8: -DPICO_BOARD on the command line overrides the
+    # cached value from the top-level CMakeLists and reverts the board config.
+    assert not any("PICO_BOARD" in c for c in fw.configure_command())
+
+def test_pico_sdk_dir_falls_back_to_newest_installed(tmp_path, monkeypatch):
+    root = tmp_path / ".pico-sdk" / "sdk"
+    (root / "2.1.0").mkdir(parents=True)
+    (root / "2.4.0").mkdir(parents=True)
+    monkeypatch.setattr(fw.pathlib.Path, "home", staticmethod(lambda: tmp_path))
+    assert fw._pico_sdk_dir("sdk", "2.1.0").name == "2.1.0"   # pinned wins when present
+    assert fw._pico_sdk_dir("sdk", "9.9.9").name == "2.4.0"   # else newest installed
+
+def test_needs_configure_detects_missing_and_stale_trees(tmp_path, monkeypatch):
+    monkeypatch.setattr(fw, "BUILD_DIR", tmp_path / "build")
+    assert fw.needs_configure() is True                       # no build tree at all
+
+    sdk = fw._pico_sdk_dir("sdk", fw.PICO_SDK_VERSION)
+    if sdk is None:
+        return                                                # no SDK installed here
+    (tmp_path / "build").mkdir()
+    cache = tmp_path / "build" / "CMakeCache.txt"
+    cache.write_text(f"PICO_SDK_PATH:PATH={sdk}\n")
+    assert fw.needs_configure() is False                      # already on the pinned SDK
+    cache.write_text("PICO_SDK_PATH:PATH=/somewhere/sdk/1.0.0\n")
+    assert fw.needs_configure() is True                       # configured against another SDK
