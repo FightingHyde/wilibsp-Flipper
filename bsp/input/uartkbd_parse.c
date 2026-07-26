@@ -62,7 +62,7 @@ static void accept_frame(uartkbd_parser_t *p)
     p->flags = decode_flags(p->frame);
     memcpy(p->charger_raw, &p->frame[10], sizeof p->charger_raw);
     p->charger_valid = true;
-    uint16_t nb = decode_buttons(p->frame);
+    uint16_t nb = (uint16_t)(decode_buttons(p->frame) | p->inject_mask);
     if (!p->primed) {
         p->primed = true;
         p->buttons = nb;
@@ -153,4 +153,14 @@ float uartkbd_charger_temp_c(uint16_t tspct)
     float r_ntc = 1.0f / inv;
     float t_k = 1.0f / (1.0f / 298.15f + logf(r_ntc / 10000.0f) / 3435.0f);
     return t_k - 273.15f;
+}
+
+void uartkbd_parse_set_inject(uartkbd_parser_t *p, uint16_t mask)
+{
+    p->inject_mask = mask;
+}
+
+uint16_t uartkbd_parse_inject(const uartkbd_parser_t *p)
+{
+    return p->inject_mask;
 }

@@ -17,4 +17,10 @@ bool     uartkbd_charger(uartkbd_charger_t *out);
 uint32_t uartkbd_frames(void);
 uint32_t uartkbd_errors(void);
 
+/* agentio: set the injected button mask (bit N = uartkbd_btn_t N held).
+ * Works with or without a keyboard attached — uartkbd_task() synthesizes a
+ * well-formed idle frame whenever the wire has been silent for 50 ms, so the
+ * parser stays primed and injected edges always fire. */
+void uartkbd_inject_set(uint16_t mask);
+
 #endif /* UARTKBD_H */

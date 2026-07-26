@@ -206,6 +206,16 @@ target_include_directories(test_uartkbd_parse PRIVATE
 target_link_libraries(test_uartkbd_parse m)
 add_test(NAME uartkbd_parse COMMAND test_uartkbd_parse)
 
+add_executable(test_uartkbd_inject
+    test_uartkbd_inject.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/input/uartkbd_parse.c)
+target_include_directories(test_uartkbd_inject PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/input
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_uartkbd_inject m)
+add_test(NAME uartkbd_inject COMMAND test_uartkbd_inject)
+
 add_executable(test_agentio_rle
     test_agentio_rle.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/agentio/agentio_rle.c)
