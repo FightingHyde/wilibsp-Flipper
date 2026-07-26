@@ -45,4 +45,6 @@
 #include "keyboard/fw2kb.h"     // (harvested: two-press chord keyboard engine, ../wilikeyboard)
 #include "input/uartkbd.h"      // (FW2 UART keyboard: 14 buttons @ UART1 62500, GPIO38/39)
 
+#include "agentio/agentio.h"    // (agent E2E harness: input injection + capture)
+
 #endif // FW2_H
