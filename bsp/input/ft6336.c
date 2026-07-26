@@ -33,7 +33,26 @@ bool ft6336_init(void) {
     return ok;
 }
 
+static uint16_t s_inj_x, s_inj_y;
+static bool     s_inj_down;
+static uint32_t s_inj_reads;
+
+void ft6336_inject_set(uint16_t x, uint16_t y, bool down) {
+    s_inj_x = x;
+    s_inj_y = y;
+    s_inj_down = down;
+    if (down) s_inj_reads = 0;   // fresh count per injected press
+}
+
+uint32_t ft6336_inject_reads(void) { return s_inj_reads; }
+
 bool ft6336_poll(uint16_t* x, uint16_t* y) {
+    if (s_inj_down) {            // injected point wins; no I2C traffic at all
+        *x = s_inj_x;
+        *y = s_inj_y;
+        s_inj_reads++;
+        return true;
+    }
     // One transaction over regs 0x02..0x07 so TD_STATUS and the point latch are coherent.
     uint8_t b[6];
     if (!ft_rd(FT6336_REG_TD_STATUS, b, 6)) return false;

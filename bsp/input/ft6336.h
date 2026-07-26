@@ -16,4 +16,12 @@ bool ft6336_init(void);
 // and returns true; returns false when nothing (or more than one point) is touched.
 bool ft6336_poll(uint16_t* x, uint16_t* y);
 
+// agentio touch injection. While `down` is set, ft6336_poll() returns the
+// injected point and skips the I2C read entirely, so injection works with no
+// finger (and no touch controller) present. ft6336_inject_reads() counts polls
+// that observed the injected point — agentio uses it to hold a tap until the
+// app has actually seen it at least once.
+void     ft6336_inject_set(uint16_t x, uint16_t y, bool down);
+uint32_t ft6336_inject_reads(void);
+
 #endif // FT6336_H
