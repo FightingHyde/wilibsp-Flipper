@@ -57,7 +57,16 @@ static void synth_frame(void)
     uint8_t sum = 0;
     for (int i = 0; i < UARTKBD_FRAME_LEN - 1; i++) sum = (uint8_t)(sum + f[i]);
     f[UARTKBD_FRAME_LEN - 1] = sum;
+    /* accept_frame() marks charger data valid on ANY checksum-valid frame,
+     * synthetic or real. Save/restore charger_valid around the feed so a
+     * synthetic frame preserves it exactly rather than setting it: before any
+     * real charger data has arrived, restoring false stops uartkbd_charger()
+     * from fabricating engineering-unit readings out of the zeroed
+     * charger_raw above; once real data has made it true, the restore is a
+     * no-op and the charger_raw passthrough still works as before. */
+    bool had_charger = s_parser.charger_valid;
     for (int i = 0; i < UARTKBD_FRAME_LEN; i++) uartkbd_parse_byte(&s_parser, f[i]);
+    s_parser.charger_valid = had_charger;
 }
 
 void uartkbd_init(void)
