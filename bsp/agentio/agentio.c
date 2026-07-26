@@ -7,6 +7,7 @@
 #include "agentio/agentio_proto.h"
 #include "agentio/agentio_rle.h"
 #include "agentio/agentio_shadow.h"
+#include "display/hstx_dvi.h"
 #include "display/st7796.h"
 #include "input/ft6336.h"
 #include "input/uartkbd.h"
@@ -50,6 +51,11 @@ static int  s_type_pos;
 static bool     s_tap_active;
 static uint32_t s_tap_deadline;
 static uint32_t s_tap_reads0;
+
+/* One output row at a time. 480 is the widest either surface can be
+ * (ST7796_W, and HSTX_VID_W_MAX for DVI). */
+static uint16_t s_row[ST7796_W];
+static uint8_t  s_enc[ST7796_W * 2 + ST7796_W / 128 + 8];
 
 static bool queue_push(uint16_t mask)
 {
@@ -97,6 +103,104 @@ static int split(char *line, char **argv, int max)
         if (*p) *p++ = 0;
     }
     return argc;
+}
+
+/* Surface geometry. Returns false when the surface is unusable (e.g. DVI has
+ * not been initialized, in which case its accessors are still zero/NULL). */
+static bool surface_dims(int surface, int *w, int *h)
+{
+    if (surface == AGENTIO_SURFACE_LCD) {
+        *w = ST7796_W;
+        *h = ST7796_H;
+        return true;
+    }
+    if (surface == AGENTIO_SURFACE_DVI) {
+        *w = hstx_dvi_video_w();
+        *h = hstx_dvi_video_h();
+        return hstx_dvi_video_base() != 0 && *w > 0 && *h > 0;
+    }
+    return false;
+}
+
+/* Read one output row into s_row as RGB565 colour VALUES, applying the crop
+ * origin and the nearest-neighbour downscale. The two surfaces differ in
+ * storage: the LCD shadow holds wire-order bytes (MSB first), the DVI
+ * framebuffer holds native-endian values on a strided row pitch. */
+static void read_row(int surface, int x, int y, int out_w, int scale)
+{
+    if (surface == AGENTIO_SURFACE_LCD) {
+        const uint8_t *fb = agentio_shadow_fb();
+        const uint8_t *row = &fb[((size_t)y * ST7796_W) * 2];
+        for (int i = 0; i < out_w; i++) {
+            const uint8_t *p = &row[(size_t)(x + i * scale) * 2];
+            s_row[i] = (uint16_t)((p[0] << 8) | p[1]);
+        }
+    } else {
+        const uint16_t *row = hstx_dvi_video_base()
+                            + (size_t)y * (size_t)hstx_dvi_video_stride();
+        for (int i = 0; i < out_w; i++) s_row[i] = row[x + i * scale];
+    }
+}
+
+static void put_u16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)(v >> 8); p[1] = (uint8_t)v; }
+static void put_u32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);  p[3] = (uint8_t)v;
+}
+
+/* CAP <surface> <x> <y> <w> <h> <scale> */
+static void do_capture(int surface, int x, int y, int w, int h, int scale)
+{
+    int sw, sh;
+    if (!surface_dims(surface, &sw, &sh)) {
+        reply("ERR surface\n");
+        return;
+    }
+    if (scale < 1) scale = 1;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (w <= 0 || x + w > sw) w = sw - x;
+    if (h <= 0 || y + h > sh) h = sh - y;
+    if (w <= 0 || h <= 0) {
+        reply("ERR rect\n");
+        return;
+    }
+
+    int out_w = w / scale;
+    int out_h = h / scale;
+    if (out_w <= 0 || out_h <= 0) {
+        reply("ERR scale\n");
+        return;
+    }
+
+    /* Pass 1: total payload size (the header carries it, so it must be known
+     * before the first pixel goes out). */
+    uint32_t total = 0;
+    for (int r = 0; r < out_h; r++) {
+        read_row(surface, x, y + r * scale, out_w, scale);
+        total += (uint32_t)agentio_rle_encode(s_row, (size_t)out_w,
+                                              s_enc, sizeof s_enc);
+    }
+
+    uint8_t hdr[AGENTIO_HEADER_LEN];
+    memcpy(hdr, AGENTIO_MAGIC, 4);
+    hdr[4] = (uint8_t)surface;
+    hdr[5] = AGENTIO_FORMAT_PACKBITS16;
+    put_u16(&hdr[6],  (uint16_t)x);
+    put_u16(&hdr[8],  (uint16_t)y);
+    put_u16(&hdr[10], (uint16_t)out_w);
+    put_u16(&hdr[12], (uint16_t)out_h);
+    put_u32(&hdr[14], total);
+    SEGGER_RTT_Write(AGENTIO_RTT_CHANNEL, hdr, sizeof hdr);
+
+    /* Pass 2: stream. The up buffer blocks when full, so this returns only
+     * once the host has drained every byte. */
+    for (int r = 0; r < out_h; r++) {
+        read_row(surface, x, y + r * scale, out_w, scale);
+        size_t n = agentio_rle_encode(s_row, (size_t)out_w, s_enc, sizeof s_enc);
+        SEGGER_RTT_Write(AGENTIO_RTT_CHANNEL, s_enc, (unsigned)n);
+    }
 }
 
 static void dispatch(char *line)
@@ -165,6 +269,13 @@ static void dispatch(char *line)
             return;
         }
         reply("OK\n");
+        return;
+    }
+
+    if (strcmp(argv[0], AGENTIO_CMD_CAP) == 0 && argc == 7) {
+        do_capture((int)strtol(argv[1], 0, 10), (int)strtol(argv[2], 0, 10),
+                   (int)strtol(argv[3], 0, 10), (int)strtol(argv[4], 0, 10),
+                   (int)strtol(argv[5], 0, 10), (int)strtol(argv[6], 0, 10));
         return;
     }
 
