@@ -196,6 +196,14 @@ add_executable(test_fw2kb_hid test_fw2kb_hid.c ${BSPKBD}/fw2kb.c ${BSPKBD}/fw2kb
 target_include_directories(test_fw2kb_hid PRIVATE ${BSPKBD} ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME fw2kb_hid COMMAND test_fw2kb_hid)
 
+add_executable(test_fw2kb_chord
+    test_fw2kb_chord.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/keyboard/fw2kb.c)
+target_include_directories(test_fw2kb_chord PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME fw2kb_chord COMMAND test_fw2kb_chord)
+
 # --- bsp/input uartkbd_parse pure-logic parser (no UART hardware) ---
 add_executable(test_uartkbd_parse
     test_uartkbd_parse.c

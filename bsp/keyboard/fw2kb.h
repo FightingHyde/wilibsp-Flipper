@@ -49,6 +49,11 @@ typedef struct {
 
 #define FW2KB_EVENT_RING 8
 
+/* Upper bound on presses returned by fw2kb_chord_for: one PAGE press to cancel
+ * a half-entered chord, up to five to reach the target page, then the group and
+ * character presses. */
+#define FW2KB_CHORD_MAX 10
+
 typedef struct {
     fw2kb_mode mode;
     int page;              /* current page table index */
@@ -76,6 +81,12 @@ bool fw2kb_hid(fw2kb_t *kb, uint8_t usage, uint8_t modifiers);
 bool fw2kb_next_event(fw2kb_t *kb, fw2kb_event *out);
 void fw2kb_get_labels(const fw2kb_t *kb, const char *labels[5]);
 bool fw2kb_in_chord(const fw2kb_t *kb);
+
+/* Resolve the press sequence that types `ch` from the keyboard's CURRENT state
+ * (page, mode and mid-chord status all matter). Writes the presses to out[] and
+ * the count to *n; returns false if `ch` is not reachable from this state, in
+ * which case out[] and *n are undefined. Pure: does NOT modify *kb. */
+bool fw2kb_chord_for(const fw2kb_t *kb, char ch, fw2kb_btn *out, int *n);
 
 #ifdef __cplusplus
 }

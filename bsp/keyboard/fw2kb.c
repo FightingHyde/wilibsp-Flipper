@@ -134,3 +134,36 @@ bool fw2kb_in_chord(const fw2kb_t *kb)
 {
     return !kb->group_state;
 }
+
+bool fw2kb_chord_for(const fw2kb_t *kb, char ch, fw2kb_btn *out, int *n)
+{
+    if (ch == 0) return false;          /* group padding, never typable */
+
+    fw2kb_t tmp = *kb;                  /* simulate; never touch the caller's */
+    int count = 0;
+
+    if (!tmp.group_state) {             /* cancel a half-entered chord first */
+        out[count++] = FW2KB_BTN_AI;
+        tmp.group_state = true;
+    }
+
+    /* Try the current page, then each page reachable by cycling. Five hops is
+     * more than any mode needs (MODE_ALL reaches three pages), and revisiting
+     * a page is harmless because the first match wins. */
+    for (int hop = 0; hop <= 5; hop++) {
+        for (int g = 0; g < 5; g++) {
+            for (int i = 0; i < 5; i++) {
+                if (k_pages[tmp.page][g].s[i] != ch) continue;
+                if (count + 2 > FW2KB_CHORD_MAX) return false;
+                out[count++] = (fw2kb_btn)g;
+                out[count++] = (fw2kb_btn)i;
+                *n = count;
+                return true;
+            }
+        }
+        if (count + 1 > FW2KB_CHORD_MAX) return false;
+        out[count++] = FW2KB_BTN_AI;
+        cycle_page(&tmp);
+    }
+    return false;
+}
