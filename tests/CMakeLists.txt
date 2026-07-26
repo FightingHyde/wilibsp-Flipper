@@ -205,3 +205,11 @@ target_include_directories(test_uartkbd_parse PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_uartkbd_parse m)
 add_test(NAME uartkbd_parse COMMAND test_uartkbd_parse)
+
+add_executable(test_agentio_rle
+    test_agentio_rle.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/agentio/agentio_rle.c)
+target_include_directories(test_agentio_rle PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME agentio_rle COMMAND test_agentio_rle)
