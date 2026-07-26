@@ -50,7 +50,9 @@
 #define PDM_CLK_HZ     1024000u
 
 // --- External PSRAM (APS6404L 8MB) on the QSPI/QMI second chip select ---
-// GPIO47 = XIP_CS1n (function 9), NOT on SPI1. Brought up + memory-mapped in Plan 4.
+// GPIO47 = XIP_CS1n (function 9), NOT on SPI1. Brought up + memory-mapped by the
+// SDK's hardware_psram at boot (see bsp/boards/freewili2.h for the CS pin/size the
+// SDK reads), then re-timed for the overclock in board_init_clk().
 #define PIN_PSRAM_CS   47
 
 // --- PIO-USB device port (Pico-PIO-USB, RP2350 device via PIO). Faces the PC. ---

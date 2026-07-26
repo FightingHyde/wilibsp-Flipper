@@ -54,6 +54,22 @@ pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, (16 * 1024 * 1024))
 // --- LED ---
 // No default LED: GPIO25 is the LCD backlight on FreeWili 2, not an LED.
 
+// --- PSRAM (APS6404L, 8 MB, on QMI/XIP CS1 = GPIO47) ---
+// These two are read by the SDK's hardware_psram: runtime_init brings PSRAM up at
+// boot and maps it at 0x11000000, and PICO_PSRAM_SIZE_BYTES also sizes the linker's
+// PSRAM region, which is what makes __uninitialized_psram placement work.
+// NOTE: boot-time timing is derived from the boot clk_sys. board_init_clk() re-runs
+// psram_configure_params() + psram_reinitialize() after the overclock — see
+// docs/hardware/facts.md.
+#ifndef PICO_PSRAM_CS_PIN
+#define PICO_PSRAM_CS_PIN 47
+#endif
+
+pico_board_cmake_set_default(PICO_PSRAM_SIZE_BYTES, (8 * 1024 * 1024))
+#ifndef PICO_PSRAM_SIZE_BYTES
+#define PICO_PSRAM_SIZE_BYTES (8 * 1024 * 1024)
+#endif
+
 pico_board_cmake_set_default(PICO_RP2350_A2_SUPPORTED, 1)
 #ifndef PICO_RP2350_A2_SUPPORTED
 #define PICO_RP2350_A2_SUPPORTED 1

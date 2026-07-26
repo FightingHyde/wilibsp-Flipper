@@ -21,8 +21,12 @@
 #define LINE_H     (8 * TEXT_SCALE)
 
 /* Off-screen framebuffer in PSRAM (AGENTS.md: large buffers live in PSRAM),
- * flushed whole-screen by DMA so the main loop never blocks on SPI. */
-static uint16_t *const s_fb = (uint16_t *)PSRAM_BASE;
+ * flushed whole-screen by DMA so the main loop never blocks on SPI. Placed by
+ * the linker via __uninitialized_psram, NOT by casting PSRAM_BASE — the
+ * linker's PSRAM region starts at PSRAM_BASE too, so a raw pointer there
+ * aliases whatever else got allocated. */
+static uint16_t __uninitialized_psram("fb") s_fb_store[ST7796_W * ST7796_H];
+static uint16_t *const s_fb = s_fb_store;
 
 /* Everything shown on screen; memset before filling so struct padding is
  * zeroed and memcmp is a valid change detector. */

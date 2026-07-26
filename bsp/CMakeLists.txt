@@ -73,6 +73,7 @@ target_link_libraries(freewili2_bsp PUBLIC
     hardware_pio
     hardware_clocks
     hardware_vreg
+    hardware_psram
     hardware_pwm)
 
 # GDO0 = GPIO32; PIO must use the GPIO base window 16..47 to reach it.

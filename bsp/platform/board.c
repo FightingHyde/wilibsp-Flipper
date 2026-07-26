@@ -7,6 +7,7 @@
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "hardware/i2c.h"
+#include "hardware/psram.h"
 #include "hardware/vreg.h"
 
 void board_init(void) { board_init_clk(BOARD_SYS_CLOCK_KHZ); }
@@ -25,6 +26,19 @@ void board_init_clk(uint32_t sys_clock_khz) {
     // and the LCD shows nothing — the working reference driver does exactly this.
     uint32_t f = clock_get_hz(clk_sys);
     clock_configure(clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, f, f);
+
+    // Re-time PSRAM for the new clk_sys. The SDK brings PSRAM up during
+    // runtime_init, BEFORE main() — i.e. at the boot clock — and nothing in
+    // hardware_clocks re-runs it when clk_sys changes, so the QMI M1 timing is
+    // stale the moment we overclock. Both calls are required: psram_set_params()
+    // (reached via psram_configure_params) only stores the values in statics; the
+    // QMI timing register is written by psram_reinitialize(). psram_reinitialize()
+    // is documented unsafe while executing from flash or PSRAM — safe here because
+    // every app is copy_to_ram (invariant 2) and core1 is not running yet.
+    psram_configure_params(PICO_DEFAULT_PSRAM_MAX_FREQ,
+                           PICO_DEFAULT_PSRAM_MAX_SELECT,
+                           PICO_DEFAULT_PSRAM_MIN_DESELECT);
+    psram_reinitialize();
 
     // Bring up the shared SPI1 bus now that clk_peri is live, so BOTH the display
     // and a radio-only app (which never calls st7796_init) find the SSP enabled.

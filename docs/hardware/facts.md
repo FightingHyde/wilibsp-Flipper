@@ -35,8 +35,14 @@ whole binary (code + data + bss) runs from the RP2350's 512 KB SRAM, not
 flash XIP. This is what makes running at 250 MHz safe without flash-timing
 concerns, but it means SRAM is the tight budget — large buffers (framebuffers,
 capture clips, waterfalls) must go in PSRAM
-(`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by `psram_init()` in
-`bsp/platform/psram.c`), not on the stack or in a static SRAM array.
+(`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the SDK's
+`hardware_psram` at boot), not on the stack or in a static SRAM array. Place
+them with `__uninitialized_psram("group")`, never by casting `PSRAM_BASE` — see
+the PSRAM section at the end of this file.
+
+`board_init_clk()` also re-times PSRAM after the clock change (step 5:
+`psram_configure_params()` + `psram_reinitialize()`), for the reasons in that
+same section.
 
 ## Diagnostics = SEGGER RTT only
 
@@ -287,3 +293,44 @@ repo combines the two (see `docs/drivers/ir.md` § Dependencies).
   fwcom protocol notes.
 - All four sensors are blocking polled I2C1 (400 kHz) — no DMA/IRQ/PIO. The
   SHT40 high-precision measure blocks ~10 ms per read.
+
+## PSRAM moved to the SDK's hardware_psram (2026-07-26, SDK 2.3.0)
+
+The 130-line hand-rolled APS6404L bring-up (harvested from `evaderkrub/usbcamfw`)
+is gone; `bsp/platform/psram.c` is now a shim over the SDK. Four facts that cost
+real reading of the SDK source to establish:
+
+- **Boot-time PSRAM timing goes stale when you overclock.** `runtime_init` brings
+  PSRAM up before `main()`, at the boot `clk_sys`, and `psram_configure_params()`
+  derives divisor/rxdelay/select/deselect from `clock_get_hz(clk_sys)` at call
+  time. Nothing in `hardware_clocks` re-runs it on a clock change, so
+  `board_init_clk()` must re-time PSRAM after `set_sys_clock_khz()`.
+- **`psram_configure_params()` alone does nothing to the hardware.** It ends in
+  `psram_set_params()`, which only stores the values in file statics. The QMI
+  `m[1].timing` register is written by `psram_initialize_internal()`, reached only
+  via `psram_reinitialize()`. Re-timing therefore needs BOTH calls — this is the
+  easy way to "fix" the timing and have nothing change.
+- **`psram_reinitialize()` is documented unsafe while executing from flash or
+  PSRAM**, or with IRQ handlers/vector table in flash or PSRAM. It is safe in
+  `board_init_clk()` only because every app is `copy_to_ram` (invariant 2) and
+  core1 has not started yet. Keep that in mind if a future app is ever linked
+  to run from flash.
+- **The linker's PSRAM region ORIGIN is `0x11000000` — the same address as
+  `PSRAM_BASE`.** Setting `PICO_PSRAM_SIZE_BYTES` sizes that region, so any
+  `__uninitialized_psram` variable is placed from `0x11000000` upward and a raw
+  `(uint16_t *)PSRAM_BASE` pointer aliases it. Allocate PSRAM buffers with
+  `__uninitialized_psram("group")`, never by casting `PSRAM_BASE`.
+  `psram_selftest()` now tests above `__psram_end__` for the same reason.
+
+Timing values changed with this migration: the old driver ran the APS6404L at
+`clk_sys/3` (83.3 MHz at 250 MHz) with rxdelay 1, min_deselect 13 and
+SELECT_HOLD 3; the SDK defaults give `clk_sys/2` (125 MHz) with rxdelay 3,
+min_deselect 4 and no SELECT_HOLD. The SDK path is Raspberry Pi's APS6404
+reference (same chip and CS pin as `adafruit_fruit_jam`), but it is **faster than
+anything previously run on this board** — `psram_selftest()` on hardware is the
+gate before trusting it. Note `psram_set_params()` cannot express SELECT_HOLD at
+all; the SDK's register write leaves it 0.
+
+**Reporting artifact:** `.psram_noload` is NOBITS, so flat `arm-none-eabi-size`
+folds PSRAM into `bss` (`hello_keyboard` shows 311 KB bss for 4 KB of real SRAM
+bss). Use `size -A` when checking the 512 KB SRAM budget.

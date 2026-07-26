@@ -81,12 +81,19 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
    `vreg_set_voltage(VREG_VOLTAGE_1_25)` → `sleep_ms(10)` →
    `set_sys_clock_khz(250000, true)` → **re-source `clk_peri` from
    `clk_sys`** via
-   `clock_configure(clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, f, f)`.
-   Without that re-source the SPI peripheral has no clock and the LCD is
-   dead. Every app binary is `pico_set_binary_type(<app> copy_to_ram)`: all
-   code+data+bss live in 512 KB SRAM, so watch the RAM budget — large buffers
-   (framebuffers, capture clips) belong in PSRAM (`PSRAM_BASE 0x11000000`,
-   APS6404L, 8 MB, brought up by `bsp/platform/psram.c`).
+   `clock_configure(clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, f, f)`
+   → **re-time PSRAM** (`psram_configure_params()` + `psram_reinitialize()`;
+   both are required — the first only stores values, the second writes the QMI
+   register). Without the `clk_peri` re-source the SPI peripheral has no clock
+   and the LCD is dead. Every app binary is
+   `pico_set_binary_type(<app> copy_to_ram)`: all code+data+bss live in 512 KB
+   SRAM, so watch the RAM budget — large buffers (framebuffers, capture clips)
+   belong in PSRAM (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the
+   SDK's `hardware_psram` at boot from `bsp/boards/freewili2.h`). Allocate them
+   with `__uninitialized_psram("group")`, **never** by casting `PSRAM_BASE` —
+   the linker's PSRAM region starts at that same address, so a raw pointer
+   aliases whatever the linker placed there. Note `arm-none-eabi-size` folds
+   PSRAM into `bss`; use `size -A` to read the real SRAM figure.
    250 MHz is the DEFAULT (audio-optimal: NAU88C10 MCLK = clk_sys/61 = 4.0984 MHz
    ~ 16 kHz fs). An app may bring the board up at another even-MHz clock via
    board_init_clk(khz) — the DVI demo uses 252 MHz for an exact 25.2 MHz pixel
