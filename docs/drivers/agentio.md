@@ -223,8 +223,15 @@ the host tells these apart by checking the first 4 bytes against
   UART DMA ring survives ~164 ms of stall per `docs/drivers/keyboard.md`, but
   a big enough capture can still exceed that).
 - **DVI capture requires DVI to already be running.** `--surface dvi` reads
-  `hstx_dvi_video_base()`/`_stride()`/`_w()`/`_h()`; until `hstx_dvi_init()`
-  has been called those are zero/unset and `CAP` replies `ERR surface`.
+  `hstx_dvi_region_base()`/`hstx_dvi_video_stride()`/`hstx_dvi_region_h()`
+  (plus the fixed `HSTX_VID_W_MAX` for width); until `hstx_dvi_init()` has
+  been called those are zero/unset and `CAP` replies `ERR surface`. It
+  deliberately reads the *region* accessors, not `hstx_dvi_video_base()`/
+  `_w()`/`_h()` (the movie sub-rect) — per `bsp/display/hstx_dvi.h` the OSD
+  draws in the margin outside the movie rect, so cropping the movie alone
+  could never reach it. **No app in the tree initializes both DVI and
+  agentio yet, so this path is unexercised** — treat it as design intent
+  pending a real test.
 - **`TYPE` needs a bound keyboard and has a length cap.** Without
   `agentio_bind_keyboard()` having been called, `TYPE` replies
   `ERR no-keyboard-bound`. Text longer than `AGENTIO_TYPE_MAX` (64

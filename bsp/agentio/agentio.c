@@ -115,9 +115,18 @@ static bool surface_dims(int surface, int *w, int *h)
         return true;
     }
     if (surface == AGENTIO_SURFACE_DVI) {
-        *w = hstx_dvi_video_w();
-        *h = hstx_dvi_video_h();
-        return hstx_dvi_video_base() != 0 && *w > 0 && *h > 0;
+        /* hstx_dvi_video_base()/_w()/_h() describe the MOVIE sub-rect, which
+         * the app can shrink for aspect-ratio letterboxing via
+         * hstx_dvi_set_geometry(). Per hstx_dvi.h, the OSD deliberately draws
+         * outside that sub-rect, in the margin of the FIXED region -- so a
+         * crop of the movie rect can never reach it. Use the region
+         * accessors (region_base/region_h) and HSTX_VID_W_MAX (the header
+         * exposes no separate "region width" accessor; the stored region's
+         * row width is fixed at build time and this is its upper bound) so
+         * the whole capturable area, movie plus OSD margin, is in play. */
+        *w = HSTX_VID_W_MAX;
+        *h = hstx_dvi_region_h();
+        return hstx_dvi_region_base() != 0 && *h > 0;
     }
     return false;
 }
@@ -136,7 +145,11 @@ static void read_row(int surface, int x, int y, int out_w, int scale)
             s_row[i] = (uint16_t)((p[0] << 8) | p[1]);
         }
     } else {
-        const uint16_t *row = hstx_dvi_video_base()
+        /* Region base/stride, not video_base/_stride -- see the comment in
+         * surface_dims(). The stride is still the per-row element count
+         * hstx_dvi_video_stride() reports; only the base pointer and the
+         * addressable width/height change to the fixed region. */
+        const uint16_t *row = hstx_dvi_region_base()
                             + (size_t)y * (size_t)hstx_dvi_video_stride();
         for (int i = 0; i < out_w; i++) s_row[i] = row[x + i * scale];
     }
