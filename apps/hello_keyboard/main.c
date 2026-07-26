@@ -204,6 +204,8 @@ int main(void)
     ft6336_init();
     uartkbd_init();
     fw2kb_init(&s_kb);
+    agentio_init();
+    agentio_bind_keyboard(&s_kb);
     fw2kb_set_touch_threshold(&s_kb, TOUCH_SPLIT);
     DIAG("hello_keyboard up\n");
 
@@ -230,5 +232,6 @@ int main(void)
             next_link_log = now + 1000000;
         }
         sleep_ms(2);
+        agentio_task();
     }
 }
