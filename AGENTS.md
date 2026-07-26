@@ -49,10 +49,10 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
-| `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel |
-| `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold)                                |
-| `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch)                                                 |
-| `fw type "text"`    | Type text through the fw2kb chord engine                                                                     |
+| `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel — **not yet verified on hardware, see docs/drivers/agentio.md** |
+| `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold) — **not yet verified on hardware** |
+| `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch) — **not yet verified on hardware**              |
+| `fw type "text"`    | Type text through the fw2kb chord engine — **not yet verified on hardware**                                  |
 
 Add `--print` to `build`/`flash`/`rtt`/`test` to print the underlying
 command(s) instead of running them (useful for an agent to inspect what would
