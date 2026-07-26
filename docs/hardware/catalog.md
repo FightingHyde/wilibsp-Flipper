@@ -25,12 +25,13 @@ procedure once you've picked a row.
 | USB host MSC (thumb drive) | `bsp/usbhost/{usb_core,usb_hcd,usb_hub,usb_msc,usb_parse,msc_disk,usb_store}.{c,h}` + `bsp/third_party/fatfs/*` | Native RP2350 USB controller in host mode (mutually exclusive with TinyUSB device mode), CH334F hub, single hub tier only, polled/no-IRQ. Gated by `ioexp_usb_pwr()` (PCAL6524 P0_0 = HP1 + P1_4 = HP2, off at power-on). Harvested from `WiliIR`, origin the owner's `usbmsc` driver (vendored verbatim into WiliIR, then carried here unmodified). Demo: `apps/hello_usbdrive`. |
 | Agent E2E harness — remote input injection + screen capture | `bsp/agentio/{agentio,agentio_rle,agentio_shadow}.{c,h}`, `bsp/agentio/agentio_proto.h` | Not a peripheral: a test harness. RTT channel 1 (commands down, PackBits-16 pixels up); shadow framebuffer mirrors ST7796 writes because the panel cannot be read back; injection lives in `uartkbd_parse` and `ft6336_poll`. Build switch `FW2_AGENTIO` (default ON). Host verbs: `fw screenshot` / `press` / `hold` / `release` / `touch` / `type`. Demo: `apps/hello_agentio`. |
 
-These thirteen are exactly what `bsp/CMakeLists.txt` compiles into
+These fourteen are exactly what `bsp/CMakeLists.txt` compiles into
 `freewili2_bsp` today (plus `third_party/segger_rtt` and `third_party/fatfs`)
-and exactly what `bsp/fw2.h` includes. (`platform/*.c`, `display/*.c`,
-`input/*.c`, `leds/*.c`, `audio/*.c`, `radio/*.c`, `pdm/*.c`, `dsp/*.c`,
-`sensors/*.c`, `ir/*.c`, `usbhost/*.c`, plus `i2s_duplex.pio.h`,
-`gdo_capture.pio.h`, `ir_capture.pio.h`, and `ir_tx.pio.h` generation)
+and exactly what `bsp/fw2.h` includes. (`agentio/*.c`, `platform/*.c`,
+`display/*.c`, `input/*.c`, `leds/*.c`, `audio/*.c`, `radio/*.c`, `pdm/*.c`,
+`dsp/*.c`, `sensors/*.c`, `ir/*.c`, `keyboard/*.c`, `usbhost/*.c`, plus
+`ws2812.pio.h`, `i2s_duplex.pio.h`, `gdo_capture.pio.h`, `pdm_capture.pio.h`,
+`ir_capture.pio.h`, and `ir_tx.pio.h` generation)
 
 ## TODO (future add-driver increments)
 
