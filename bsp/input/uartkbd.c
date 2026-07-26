@@ -25,13 +25,23 @@ static int      s_dma_chan = -1;
 
 static uartkbd_parser_t s_parser;
 
-/* Synthesize a frame when the wire has been silent this long. The real
- * keyboard streams continuously, so this only fires when nothing is attached
- * (or it was unplugged). */
-#define UARTKBD_SYNTH_IDLE_MS 50u
+/* agentio button injection. A synthetic frame is emitted on demand — exactly
+ * once per uartkbd_inject_set() call, plus once at init to prime the parser —
+ * never on a timer. The real keyboard reports on change or ~2x/second (see
+ * Wilikeyboard.md), i.e. up to ~500 ms apart during a steady hold; a
+ * time-based heartbeat shorter than that would misfire mid-hold and inject a
+ * spurious release/re-press into ordinary input. */
+static bool     s_synth_pending;
 
-static uint32_t s_last_real_ms;
-static uint32_t s_last_frames;
+/* If the wire goes silent while the parser is mid-frame (disconnect at the
+ * wrong instant, or garbage that coincidentally matches the sync bytes),
+ * state would otherwise never return to hunt and a pending synthetic frame
+ * could stall forever. Track the last time any RX byte was observed and
+ * force the parser back to hunt if it has sat mid-frame too long. 250 ms
+ * comfortably exceeds the ~3.7 ms it takes 23 bytes to arrive at 62500 baud,
+ * and is comfortably shorter than the ~500 ms real-frame cadence. */
+#define UARTKBD_MIDFRAME_TIMEOUT_MS 250u
+static uint32_t s_last_byte_ms;
 
 /* Idle (all-released) wire values for the button bytes. Injected buttons are
  * OR'd in by the parser, so this frame never needs per-button bit knowledge. */
@@ -54,8 +64,8 @@ void uartkbd_init(void)
 {
     uartkbd_parse_init(&s_parser);
     s_rd = 0;
-    s_last_real_ms = to_ms_since_boot(get_absolute_time());
-    s_last_frames  = 0;
+    s_last_byte_ms  = to_ms_since_boot(get_absolute_time());
+    s_synth_pending = false;
 
     uart_init(UARTKBD_UART, UARTKBD_BAUD);
     gpio_set_function(UARTKBD_TX_PIN, GPIO_FUNC_UART_AUX);
@@ -80,6 +90,11 @@ void uartkbd_init(void)
     dma_channel_hw_addr(s_dma_chan)->al1_transfer_count_trig =
         ((uint32_t)DMA_CH0_TRANS_COUNT_MODE_VALUE_ENDLESS
              << DMA_CH0_TRANS_COUNT_MODE_LSB) | 1u;
+
+    /* Prime the parser immediately so the very first injected press (with no
+     * keyboard attached) produces a real edge rather than being swallowed by
+     * the parser's own first-frame priming. */
+    synth_frame();
 }
 
 void uartkbd_task(void)
@@ -87,22 +102,25 @@ void uartkbd_task(void)
     if (s_dma_chan < 0) return;
     uint32_t wr = (uint32_t)(dma_channel_hw_addr(s_dma_chan)->write_addr
                              - (uintptr_t)s_ring) & (RING_SIZE - 1);
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+    if (s_rd != wr) s_last_byte_ms = now;
     while (s_rd != wr) {
         uartkbd_parse_byte(&s_parser, s_ring[s_rd]);
         s_rd = (s_rd + 1) & (RING_SIZE - 1);
     }
 
-    /* Synthetic idle heartbeat when the wire is silent. Emitted ONLY in hunt
-     * state so it can never corrupt a partially-received real frame. */
-    uint32_t now = to_ms_since_boot(get_absolute_time());
-    if (s_parser.frames != s_last_frames) {
-        s_last_frames = s_parser.frames;
-        s_last_real_ms = now;
-    }
-    if (now - s_last_real_ms >= UARTKBD_SYNTH_IDLE_MS && s_parser.state == 0) {
+    /* Mid-frame silence timeout: force the parser back to hunt if it has sat
+     * outside hunt state too long with no bytes arriving (see comment on
+     * UARTKBD_MIDFRAME_TIMEOUT_MS above). Keeps uartkbd_parse.c pure and
+     * free of time. */
+    if (s_parser.state != 0 && (now - s_last_byte_ms) >= UARTKBD_MIDFRAME_TIMEOUT_MS)
+        s_parser.state = 0;
+
+    /* Emit exactly one pending synthetic frame once the parser reaches hunt
+     * state, so it can never corrupt a partially-received real frame. */
+    if (s_synth_pending && s_parser.state == 0) {
         synth_frame();
-        s_last_real_ms = now;      /* rate-limit the heartbeat to 50 ms */
-        s_last_frames = s_parser.frames;
+        s_synth_pending = false;
     }
 }
 
@@ -116,7 +134,8 @@ uint32_t uartkbd_errors(void)  { return uartkbd_parse_errors(&s_parser); }
 void uartkbd_inject_set(uint16_t mask)
 {
     uartkbd_parse_set_inject(&s_parser, mask);
-    /* Make the next task() emit a frame promptly so the edge is not delayed by
-     * up to a full heartbeat interval. */
-    s_last_real_ms -= UARTKBD_SYNTH_IDLE_MS;
+    /* One synthetic frame on the next task() call carries the edge — no
+     * timer, no periodic re-emission. If the parser is mid-frame right now,
+     * the flag stays raised and the frame goes out on a later task() call. */
+    s_synth_pending = true;
 }
