@@ -281,6 +281,16 @@ static void dispatch(char *line)
     }
 
     if (strcmp(argv[0], AGENTIO_CMD_CAP) == 0 && argc == 7) {
+        /* do_capture() runs synchronously right here, but the TAP/TYPE queue
+         * only drains one edge per agentio_task() call, which runs *after*
+         * dispatch() returns. A capture issued while a press or a TYPE
+         * string is still pending would see the screen before, or mid-way
+         * through, that injection landing. Refuse it with a distinct error
+         * so the host knows to retry rather than silently racing it. */
+        if (s_q_count > 0 || s_type[s_type_pos] != 0) {
+            reply("ERR busy\n");
+            return;
+        }
         do_capture((int)strtol(argv[1], 0, 10), (int)strtol(argv[2], 0, 10),
                    (int)strtol(argv[3], 0, 10), (int)strtol(argv[4], 0, 10),
                    (int)strtol(argv[5], 0, 10), (int)strtol(argv[6], 0, 10));

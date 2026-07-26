@@ -146,6 +146,17 @@ Button names (`BUTTONS` in `tools/fw.py`): `grey`, `yellow`, `green`, `blue`,
 `red`, plus the nav buttons — see `tools/fw.py` for the authoritative list and
 current index mapping to `uartkbd`'s bit positions.
 
+**`fw type "hello"` then `fw screenshot` is not automatically safe.** `TAP`
+and `TYPE` reply `OK` as soon as the edge/string is *accepted* into the
+target's drain queue — not once it has been applied. `dispatch()` runs a
+`CAP` synchronously, but the queue only drains one edge per
+`agentio_task()` call, which happens *after* `dispatch()` returns. A
+`screenshot` issued immediately after a `type`/`press`/`touch` reply can
+therefore land before, or partway through, that injection. `CAP` detects
+this and replies `ERR busy` while a press or `TYPE` string is still
+draining; on that reply, wait and retry the capture rather than treating it
+as a hard failure.
+
 Examples:
 
 ```bash
@@ -170,8 +181,8 @@ sent on the DOWN buffer; replies go out on the UP buffer.
 | `BTN <mask hex>` | 16-bit hex button mask | `OK` | Sets the injected button mask directly (used by `hold`/`release`). |
 | `TAP <btn>` | button index (decimal) | `OK` / `ERR queue` | Queues a press+release edge pair, consumed one edge per `agentio_task()` call so the app cannot miss it. |
 | `TCH <x> <y> <mode>` | decimal x, y; mode 0=up, 1=down, 2=tap | `OK` / `ERR mode` | Tap (`mode=2`) auto-releases after the app has observed it at least once **and** `AGENTIO_TAP_MS` (60 ms) has elapsed. |
-| `TYPE <text>` | rest of the line verbatim (spaces allowed) | `OK` / `ERR no-keyboard-bound` / `ERR busy` / `ERR too-long` | Up to `AGENTIO_TYPE_MAX` (64) characters; rejected while a previous `TYPE` or button queue is still draining. |
-| `CAP <surface> <x> <y> <w> <h> <scale>` | all decimal; surface 0=LCD, 1=DVI | 18-byte header + PackBits-16 payload, or an `ERR` line | See capture header layout below. `w`/`h` of 0 (or out of range) clamp to the remaining surface extent from `(x,y)`. |
+| `TYPE <text>` | rest of the line verbatim (spaces allowed) | `OK` / `ERR no-keyboard-bound` / `ERR busy` / `ERR too-long` | Up to `AGENTIO_TYPE_MAX` (64) characters; rejected while a previous `TYPE` or button queue is still draining. **`OK` means the string was accepted into the drain queue, not that it has been typed** — see the capture/injection race note below. |
+| `CAP <surface> <x> <y> <w> <h> <scale>` | all decimal; surface 0=LCD, 1=DVI | 18-byte header + PackBits-16 payload, or an `ERR` line | See capture header layout below. `w`/`h` of 0 (or out of range) clamp to the remaining surface extent from `(x,y)`. Replies `ERR busy` while a `TAP`/`TYPE` injection is still draining — see below. |
 
 Any unrecognized line replies `ERR unknown`.
 
