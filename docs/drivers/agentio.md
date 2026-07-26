@@ -39,6 +39,14 @@ agentio_bind_keyboard(&kb);     // optional; required only for TYPE
 for (;;) { ...app work...; agentio_task(); }
 ```
 
+**`agentio_init()` must run before anything you want to appear in a capture
+is drawn.** It `memset`s the shadow framebuffer to zero, and the shadow only
+records writes issued after that call — anything drawn earlier is erased
+from the shadow (though it still reaches the physical panel), so a capture
+of it comes back black. Call `agentio_init()` immediately after
+`board_init()`/`st7796_init()` (and `uartkbd_init()`/`fw2kb_init()` if you
+want `TYPE` and button injection), before the first draw call.
+
 `apps/hello_agentio` is the worked example — a known-pattern app whose output
 a capture can be checked against by eye or by an agent:
 
@@ -51,6 +59,14 @@ int main(void)
     ft6336_init();
     board_backlight_set(1);
 
+    // agentio_init() must come before the drawing below — it zeroes the
+    // shadow framebuffer, so anything drawn first would be erased from it.
+    fw2kb_t kb;
+    uartkbd_init();
+    fw2kb_init(&kb);
+    agentio_init();
+    agentio_bind_keyboard(&kb);
+
     const int n = (int)(sizeof k_bars / sizeof k_bars[0]);
     const int bar_w = ST7796_W / n;
     for (int i = 0; i < n; i++) {
@@ -61,12 +77,6 @@ int main(void)
     st7796_draw_text(8, 240, 2, BE(0xFFFF), BE(0x0000), "hello_agentio");
     st7796_draw_text(8, 268, 1, BE(0x07E0), BE(0x0000),
                      "fw screenshot -o shot.png");
-
-    fw2kb_t kb;
-    uartkbd_init();
-    fw2kb_init(&kb);
-    agentio_init();
-    agentio_bind_keyboard(&kb);
     DIAG("hello_agentio: pattern drawn, agentio up\n");
 
     for (;;) {

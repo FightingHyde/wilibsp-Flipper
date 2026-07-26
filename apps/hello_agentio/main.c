@@ -25,6 +25,16 @@ int main(void)
     ft6336_init();
     board_backlight_set(1);
 
+    // agentio_init() zeroes the shadow framebuffer, so it must run before
+    // anything we want a capture to see is drawn — otherwise the pattern
+    // below is erased from the shadow the instant it starts (see
+    // docs/drivers/agentio.md, "three app calls").
+    fw2kb_t kb;
+    uartkbd_init();
+    fw2kb_init(&kb);
+    agentio_init();
+    agentio_bind_keyboard(&kb);
+
     const int n = (int)(sizeof k_bars / sizeof k_bars[0]);
     const int bar_w = ST7796_W / n;
     for (int i = 0; i < n; i++) {
@@ -35,12 +45,6 @@ int main(void)
     st7796_draw_text(8, 240, 2, BE(0xFFFF), BE(0x0000), "hello_agentio");
     st7796_draw_text(8, 268, 1, BE(0x07E0), BE(0x0000),
                      "fw screenshot -o shot.png");
-
-    fw2kb_t kb;
-    uartkbd_init();
-    fw2kb_init(&kb);
-    agentio_init();
-    agentio_bind_keyboard(&kb);
     DIAG("hello_agentio: pattern drawn, agentio up\n");
 
     for (;;) {
