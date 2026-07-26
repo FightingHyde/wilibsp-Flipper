@@ -58,6 +58,11 @@ After `fw new-app <name>` you must add
 `add_subdirectory(apps/<name>)` to the top-level `CMakeLists.txt` yourself —
 the CLI only scaffolds the directory, it does not edit the top-level CMake.
 
+**`libs/onewili` is a git submodule.** A fresh clone or a new git worktree
+starts with that directory empty, and the configure then fails with
+"does not contain a CMakeLists.txt file". Run
+`git submodule update --init libs/onewili` once per checkout.
+
 **You do not need to export `PICO_SDK_PATH`.** The SDK and toolchain versions
 are pinned in `tools/fw.py` (`PICO_SDK_VERSION = "2.3.0"`,
 `PICO_TOOLCHAIN_VERSION = "14_2_Rel1"`) and passed to CMake explicitly, each

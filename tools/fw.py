@@ -87,6 +87,12 @@ def needs_configure():
     cached = _cached_sdk_path()
     if cached is None:
         return True
+    # A configure that failed part-way (missing submodule, bad path) leaves a
+    # CMakeCache.txt behind but no generator file. Without this check the cache
+    # looks valid, the configure is skipped, and the build dies on a missing
+    # build.ninja instead of just re-configuring.
+    if not (BUILD_DIR / "build.ninja").exists():
+        return True
     sdk = _pico_sdk_dir("sdk", PICO_SDK_VERSION)
     return sdk is not None and pathlib.Path(cached) != sdk
 

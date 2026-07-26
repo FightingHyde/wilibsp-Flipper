@@ -102,6 +102,9 @@ def test_needs_configure_detects_missing_and_stale_trees(tmp_path, monkeypatch):
     (tmp_path / "build").mkdir()
     cache = tmp_path / "build" / "CMakeCache.txt"
     cache.write_text(f"PICO_SDK_PATH:PATH={sdk}\n")
+    # a cache without a generator file means the configure died part-way
+    assert fw.needs_configure() is True
+    (tmp_path / "build" / "build.ninja").write_text("")
     assert fw.needs_configure() is False                      # already on the pinned SDK
     cache.write_text("PICO_SDK_PATH:PATH=/somewhere/sdk/1.0.0\n")
     assert fw.needs_configure() is True                       # configured against another SDK
