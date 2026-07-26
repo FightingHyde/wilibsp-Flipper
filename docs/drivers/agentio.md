@@ -54,7 +54,12 @@ a capture can be checked against by eye or by an agent:
 int main(void)
 {
     board_init();
-    psram_init();
+    size_t psram_bytes = psram_init();
+    if (psram_bytes < (size_t)ST7796_W * ST7796_H * 2) {
+        DIAG("hello_agentio: PSRAM absent/too small (%u bytes) - halting\n",
+             (unsigned)psram_bytes);
+        for (;;) tight_loop_contents();
+    }
     st7796_init();
     ft6336_init();
     board_backlight_set(1);
