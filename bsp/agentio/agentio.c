@@ -101,6 +101,30 @@ static int split(char *line, char **argv, int max)
 
 static void dispatch(char *line)
 {
+    /* TYPE's argument is the rest of the line verbatim — it may contain
+     * spaces, so it must be taken before split() rewrites separators to NULs
+     * (tokenizing then rejoining silently truncated at split()'s token cap). */
+    if (strncmp(line, AGENTIO_CMD_TYPE " ", sizeof AGENTIO_CMD_TYPE) == 0) {
+        char *text = line + sizeof AGENTIO_CMD_TYPE;   /* past "TYPE " */
+        if (!s_kb) {
+            reply("ERR no-keyboard-bound\n");
+            return;
+        }
+        if (s_type[s_type_pos] != 0 || s_q_count > 0) {
+            reply("ERR busy\n");
+            return;
+        }
+        size_t len = strlen(text);
+        if (len > AGENTIO_TYPE_MAX) {
+            reply("ERR too-long\n");
+            return;
+        }
+        memcpy(s_type, text, len + 1);
+        s_type_pos = 0;
+        reply("OK\n");
+        return;
+    }
+
     char *argv[8];
     int argc = split(line, argv, 8);
     if (argc == 0) return;
@@ -140,29 +164,6 @@ static void dispatch(char *line)
             reply("ERR mode\n");
             return;
         }
-        reply("OK\n");
-        return;
-    }
-
-    if (strcmp(argv[0], AGENTIO_CMD_TYPE) == 0 && argc >= 2) {
-        if (!s_kb) {
-            reply("ERR no-keyboard-bound\n");
-            return;
-        }
-        if (s_type[s_type_pos] != 0 || s_q_count > 0) {
-            reply("ERR busy\n");
-            return;
-        }
-        /* argv[1] onward were split on spaces; rejoin so text can contain them.
-         * split() replaced each separator with a NUL, so restore them. */
-        for (int i = 1; i < argc - 1; i++) argv[i][strlen(argv[i])] = ' ';
-        size_t len = strlen(argv[1]);
-        if (len > AGENTIO_TYPE_MAX) {
-            reply("ERR too-long\n");
-            return;
-        }
-        memcpy(s_type, argv[1], len + 1);
-        s_type_pos = 0;
         reply("OK\n");
         return;
     }
