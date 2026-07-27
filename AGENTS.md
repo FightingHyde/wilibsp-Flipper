@@ -163,6 +163,34 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
     2026-07-26, caveats included:
     `docs/superpowers/findings/2026-07-26-gpio-vref-e2e.md`.
 
+## "GPIO" is ambiguous on this board — ASK which one
+
+**When a request mentions GPIO, stop and ask the user which kind before writing
+any code.** There are two completely different sets of pins on a FreeWili 2 and
+they share a numbering space, so a request like "toggle GPIO 25" has two valid
+readings that produce entirely different code. Guessing wastes a build/flash
+cycle at best, and at worst silently does the wrong thing on hardware.
+
+| | **External** (user GPIO header) | **Internal** (display-CPU pins) |
+| --- | --- | --- |
+| Owned by | the **main** CPU | the **display** CPU (the one this BSP runs on) |
+| Driven via | `libs/onewili` over the FwGUI link — `ow_io_gpio_set_io_high/low/toggle()`, `ow_io_gpio_read_all()` | the Pico SDK directly — `gpio_init()` / `gpio_put()` |
+| Pin numbers from | the FreeWili 2 header / product docs | `bsp/platform/board.h` (**authoritative**) |
+| Needs `ioexp_vref()` | **yes** — level shifted, dead without VIO (invariant 11) | no |
+| Requires | main CPU running the stock firmware (OneWili bridge) | nothing extra |
+| Example | `apps/toggleled`, `apps/hello_vref` | `PIN_LED_DATA`, `PIN_IR_TX`, `board_backlight_set()` |
+
+**GPIO 25 is the trap that makes this concrete.** On the header it is a
+main-CPU user pin (what `apps/toggleled` toggles). In `bsp/platform/board.h` it
+is `PIN_LCD_BL`, the display CPU's backlight enable. Same number, different
+chip, different code, and neither one errors if you pick wrong.
+
+Good clarifying questions: *"Do you mean the external GPIO on the header
+(main CPU, over OneWili) or a display-CPU pin from `board.h`?"* and, once it is
+the header, *"which VIO rail — 3.3 V, 5 V, or whatever the external Trig_IN/VREF
+pin supplies?"* Only skip the question when the request already names one
+unambiguously (e.g. it cites a `PIN_*` define, or says "over OneWili").
+
 ## How to add a driver
 
 The BSP grows by harvesting a proven driver from one of the owner's other
@@ -295,6 +323,9 @@ code written from scratch in this repo, not to harvested drivers.
   (invariant 5).
 - Trust `bsp/platform/board.h` over `FwDisplayVibe.md` for any pin or LED
   count discrepancy (invariant 6).
+- **Ask which GPIO the user means** — external header pin (main CPU, OneWili,
+  needs VIO) or internal display-CPU pin (`board.h`, plain SDK calls)? They
+  share a numbering space; GPIO 25 is valid as both. See the section above.
 - If your code drives a **header GPIO**, call `ioexp_vref()` — without a VIO
   rail the pin is silently dead while every status code says OK (invariant 11).
 - Allocate PSRAM buffers with `__uninitialized_psram("group")`, never by
