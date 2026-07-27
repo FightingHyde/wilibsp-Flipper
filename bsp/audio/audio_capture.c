@@ -8,7 +8,13 @@
 #include "hardware/irq.h"
 #include <stddef.h>
 
-static uint32_t s_buf[2][AUDIO_CAPTURE_BLOCK_FRAMES];
+// aligned + write-ring (see start_channel): if the rearm IRQ is ever starved
+// (e.g. a long IRQs-off region elsewhere), the chained ping-pong would keep
+// running with an un-reset write address and march through RAM — bench-proven
+// 2026-07-27: it sprayed BSS from here to the top of SRAM. The hardware ring
+// clamps each channel inside its own block no matter what.
+static uint32_t __attribute__((aligned(sizeof(uint32_t) * AUDIO_CAPTURE_BLOCK_FRAMES)))
+    s_buf[2][AUDIO_CAPTURE_BLOCK_FRAMES];
 static int s_dma[2];
 static volatile int s_done = -1;    // index of a freshly filled buffer, or -1
 static volatile bool s_ready = false;
@@ -20,6 +26,12 @@ static void start_channel(int ch, int other_ch, uint32_t *dst) {
     channel_config_set_write_increment(&c, true);
     channel_config_set_dreq(&c, audio_i2s_duplex_rx_dreq());
     channel_config_set_chain_to(&c, other_ch);   // ping-pong
+    // Wrap the WRITE address at the block boundary (buffer is aligned to its
+    // size above): a missed rearm then loops inside the block instead of
+    // marching into the rest of RAM.
+    _Static_assert((sizeof s_buf[0] & (sizeof s_buf[0] - 1)) == 0,
+                   "capture block must be a power of two for the DMA ring");
+    channel_config_set_ring(&c, true, __builtin_ctz(sizeof s_buf[0]));
     dma_channel_configure(ch, &c, dst, audio_i2s_duplex_rxf(),
                           AUDIO_CAPTURE_BLOCK_FRAMES, false);
 }

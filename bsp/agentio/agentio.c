@@ -96,6 +96,34 @@ static void reply(const char *s)
     SEGGER_RTT_Write(AGENTIO_RTT_CHANNEL, s, (unsigned)strlen(s));
 }
 
+/* Write a payload larger than the RTT up buffer WITHOUT blocking inside
+ * SEGGER_RTT_Write. That call holds SEGGER_RTT_LOCK (interrupts off) for the
+ * whole transfer, so when the payload exceeds the buffer it spins with IRQs
+ * masked until the host drains — and any DMA whose rearm lives in an IRQ
+ * handler (e.g. audio_capture's ping-pong) keeps chaining un-rearmed and
+ * marches its write address through RAM (root-caused on FW2 2026-07-27:
+ * capture DMA sprayed BSS from s_buf to the top of SRAM, corrupting this
+ * module's own response buffer mid-transfer). Chunking to the space that is
+ * free RIGHT NOW means each SEGGER_RTT_Write completes without ever spinning
+ * under the lock, and interrupts breathe between chunks. If the host stops
+ * draining for 3 s the remainder is dropped so the UI loop never hangs. */
+static void rtt_write_yielding(const void *data, unsigned len)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    uint32_t stall_start = time_us_32();
+    while (len) {
+        unsigned avail = SEGGER_RTT_GetAvailWriteSpace(AGENTIO_RTT_CHANNEL);
+        if (!avail) {
+            if (time_us_32() - stall_start > 3000000u) return;   /* host gone */
+            continue;
+        }
+        unsigned k = avail < len ? avail : len;
+        SEGGER_RTT_Write(AGENTIO_RTT_CHANNEL, p, k);   /* fits: never blocks */
+        p += k; len -= k;
+        stall_start = time_us_32();
+    }
+}
+
 /* Split `line` on single spaces into up to `max` tokens. Returns the count. */
 static int split(char *line, char **argv, int max)
 {
@@ -219,14 +247,14 @@ static void do_capture(int surface, int x, int y, int w, int h, int scale)
     put_u16(&hdr[10], (uint16_t)out_w);
     put_u16(&hdr[12], (uint16_t)out_h);
     put_u32(&hdr[14], total);
-    SEGGER_RTT_Write(AGENTIO_RTT_CHANNEL, hdr, sizeof hdr);
+    rtt_write_yielding(hdr, sizeof hdr);
 
-    /* Pass 2: stream. The up buffer blocks when full, so this returns only
-     * once the host has drained every byte. */
+    /* Pass 2: stream, yielding between chunks so interrupts stay live while
+     * the host drains (see rtt_write_yielding). */
     for (int r = 0; r < out_h; r++) {
         read_row(surface, x, y + r * scale, out_w, scale);
         size_t n = agentio_rle_encode(s_row, (size_t)out_w, s_enc, sizeof s_enc);
-        SEGGER_RTT_Write(AGENTIO_RTT_CHANNEL, s_enc, (unsigned)n);
+        rtt_write_yielding(s_enc, (unsigned)n);
     }
 }
 
