@@ -4,9 +4,8 @@
 > `docs/superpowers/findings/2026-07-26-agentio-e2e.md`. The "run it on
 > hardware" section below is kept as the reproduction recipe.
 
-**Branch:** `agentio` (git worktree at `.claude/worktrees/agentio`), 30 commits on top of
-`master` @ 6fd4a5e. **Not merged**, deliberately: the harness has never run on
-real hardware.
+**Branch:** `agentio` (git worktree at `.claude/worktrees/agentio`), on top of
+`master` @ 6fd4a5e. Hardware-verified and ready to merge.
 
 **What it is:** remote input injection + screen capture, so an agent can drive
 the board and see the panel without a human present. Design:
@@ -24,10 +23,11 @@ framebuffer plus the shadow); `.bss` grew ~6.9 KB, far under the 512 KB budget.
 Per-task reviews plus a whole-branch review are clean. The whole-branch review's
 8 findings were fixed in commits `60d0c6b..7dac72a` and re-reviewed.
 
-## The one thing left: run it on hardware
+## The hardware run (done — this is the reproduction recipe)
 
 Needs a CMSIS-DAP probe (the FreeWili 2 exposes several debug interfaces — use
-**OpenOCD interface 0**, per AGENTS.md). None was attached during development.
+**OpenOCD interface 0**, per AGENTS.md). Verified 2026-07-26 with a Raspberry Pi
+Debug Probe (`2e8a:000c`).
 
 ```bash
 python tools/fw.py build hello_agentio
@@ -59,15 +59,14 @@ python tools/fw.py screenshot -o kb.png
 the string is *accepted*, not when it has finished typing — `CAP` answers
 `ERR busy` while injection is still draining, so retry the screenshot.
 
-**Record the results — including anything that fails — in
-`docs/superpowers/findings/2026-07-26-agentio-e2e.md`**, following the format of
-the existing findings files. That file was deliberately NOT written during
-development, because it records hardware results that do not exist yet.
+Results are recorded in `docs/superpowers/findings/2026-07-26-agentio-e2e.md`.
+All of the above passed on the first attempt.
 
-## Watch for these two during the first session
+## Two risks that remain unprovoked
 
-Both are documented in `docs/drivers/agentio.md` and are consequences of the
-approved blocking-capture design, but they are sharper than the spec anticipated:
+Neither was triggered during the hardware run. Both are documented in
+`docs/drivers/agentio.md` and are consequences of the approved blocking-capture
+design, but they are sharper than the spec anticipated:
 
 1. **A capture blocks with interrupts masked**, not merely with the app loop
    stalled — SEGGER's `BLOCK_IF_FIFO_FULL` write spins inside a lock that sets
@@ -86,11 +85,11 @@ a timeout that aborts the capture. That was scoped out of this branch.
 ## Also unexercised
 
 No app in the tree initializes both DVI and agentio, so the DVI capture surface
-has never been exercised at all — not on hardware, and not in any build. If you
-want it, wire `agentio_init()` into `apps/hello_dvi` first.
+remains unexercised even after the hardware run. If you want it, wire
+`agentio_init()` into `apps/hello_dvi` first.
 
 ## Deferred minors
 
 `.superpowers/sdd/2026-07-26-agentio/progress.md` (git-ignored) holds the full
 execution ledger, including ~10 deferred minor findings the whole-branch review
-triaged as safe to defer. Keep that worktree until the hardware run is recorded.
+triaged as safe to defer.
