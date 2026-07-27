@@ -1,4 +1,8 @@
-# Handoff — agentio, awaiting hardware verification (2026-07-26)
+# Handoff — agentio (2026-07-26)
+
+> **UPDATE, same day: hardware verification is DONE and PASSED.** See
+> `docs/superpowers/findings/2026-07-26-agentio-e2e.md`. The "run it on
+> hardware" section below is kept as the reproduction recipe.
 
 **Branch:** `agentio` (git worktree at `.claude/worktrees/agentio`), 30 commits on top of
 `master` @ 6fd4a5e. **Not merged**, deliberately: the harness has never run on

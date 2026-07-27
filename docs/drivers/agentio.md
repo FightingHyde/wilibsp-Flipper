@@ -6,11 +6,13 @@ panel, type text through the fw2kb chord engine, and pull the screen back as a
 PNG. It exists so on-hardware behavior can be checked automatically instead of
 by eyeballing the panel.
 
-**Status: on-hardware verification is still PENDING.** Nothing in this
-harness — the shadow framebuffer, the RTT command channel, the PackBits-16
-encoder, or the `fw` CLI verbs — has been confirmed running against a real
-board yet. Treat everything below as design intent until a findings doc
-records a hardware run.
+**Status: verified on hardware 2026-07-26** — capture, button injection, touch
+injection, chord typing, crop and downscale all confirmed on a physical
+FreeWili 2 over a Raspberry Pi Debug Probe. See
+`docs/superpowers/findings/2026-07-26-agentio-e2e.md` for what was run and what
+came back. Two things remain **unverified**: the DVI capture surface (no app
+initializes both `hstx_dvi` and agentio, so that path has never run), and the
+two failure modes in Limitations below (neither was provoked).
 
 ## What it does
 
@@ -284,6 +286,13 @@ the host tells these apart by checking the first 4 bytes against
   session per button rather than one session for the whole list, so a
   multi-button press is several independent round trips, not one atomic
   command.
+- **Back-to-back one-shot commands can hit probe contention.** Each one-shot
+  verb spawns its own OpenOCD and tears it down; issuing the next command
+  immediately can fail with `openocd did not open port 9091 within 10s`
+  because the previous instance has not finished releasing the probe
+  (observed on hardware 2026-07-26). Leave a couple of seconds between
+  one-shot commands, or — better — keep a `fw rtt` running: it serves both
+  channels, holds the probe once, and every one-shot verb reuses it.
 
 ## Dependencies
 
