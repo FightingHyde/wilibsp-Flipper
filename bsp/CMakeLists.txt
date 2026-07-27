@@ -1,5 +1,8 @@
 # freewili2_bsp — shared board-support library (STATIC once it has sources).
 add_library(freewili2_bsp STATIC
+    agentio/agentio.c
+    agentio/agentio_rle.c
+    agentio/agentio_shadow.c
     platform/board.c
     platform/ioexp.c
     platform/psram.c
@@ -75,6 +78,8 @@ target_link_libraries(freewili2_bsp PUBLIC
     hardware_vreg
     hardware_psram
     hardware_pwm)
+
+target_compile_definitions(freewili2_bsp PUBLIC FW2_AGENTIO=$<BOOL:${FW2_AGENTIO}>)
 
 # GDO0 = GPIO32; PIO must use the GPIO base window 16..47 to reach it.
 target_compile_definitions(freewili2_bsp PUBLIC PICO_PIO_USE_GPIO_BASE=1)

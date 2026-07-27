@@ -102,6 +102,119 @@ def test_needs_configure_detects_missing_and_stale_trees(tmp_path, monkeypatch):
     (tmp_path / "build").mkdir()
     cache = tmp_path / "build" / "CMakeCache.txt"
     cache.write_text(f"PICO_SDK_PATH:PATH={sdk}\n")
+    # a cache without a generator file means the configure died part-way
+    assert fw.needs_configure() is True
+    (tmp_path / "build" / "build.ninja").write_text("")
     assert fw.needs_configure() is False                      # already on the pinned SDK
     cache.write_text("PICO_SDK_PATH:PATH=/somewhere/sdk/1.0.0\n")
     assert fw.needs_configure() is True                       # configured against another SDK
+
+def test_packbits_decode_handles_literal_and_repeat_runs():
+    # literal run of two units, then a repeat run of three
+    data = bytes([1, 0x12, 0x34, 0xAB, 0xCD, 0xFE, 0x07, 0xE0])
+    assert fw.packbits_decode(data, 5) == [0x1234, 0xABCD, 0x07E0, 0x07E0, 0x07E0]
+
+def test_packbits_decode_rejects_truncated_input():
+    try:
+        fw.packbits_decode(bytes([1, 0x12]), 2)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+def test_png_write_produces_a_valid_signature_and_size(tmp_path):
+    out = tmp_path / "x.png"
+    # 2x1 image: one red pixel, one blue
+    fw.png_write(str(out), 2, 1, [0xF800, 0x001F])
+    blob = out.read_bytes()
+    assert blob[:8] == b"\x89PNG\r\n\x1a\n"
+    assert b"IHDR" in blob and b"IDAT" in blob and b"IEND" in blob
+    # IHDR width/height are big-endian at a fixed offset
+    import struct
+    w, h = struct.unpack(">II", blob[16:24])
+    assert (w, h) == (2, 1)
+
+def test_rtt_command_serves_both_channels():
+    cmd = fw.rtt_command()
+    assert any(f"rtt server start {fw.RTT_PORT} 0" in c for c in cmd)
+    assert any(f"rtt server start {fw.AGENTIO_PORT} 1" in c for c in cmd)
+
+def test_main_print_dispatches_screenshot():
+    # --print must not touch hardware
+    fw.main(["screenshot", "--print"])
+
+def test_agentio_enter_cleans_up_leaked_process_on_timeout(monkeypatch):
+    # Regression: if OpenOCD never opens the RTT port within the deadline,
+    # __enter__ must still terminate the process it spawned. Python skips
+    # __exit__ when __enter__ raises, so without explicit cleanup inside
+    # __enter__ this would leak an OpenOCD process holding the debug probe.
+    monkeypatch.setattr(fw, "_port_open", lambda port: False)
+
+    class FakeProc:
+        def __init__(self):
+            self.terminated = False
+            self.killed = False
+        def poll(self):
+            return None  # still "running" the whole time
+        def terminate(self):
+            self.terminated = True
+        def wait(self, timeout=None):
+            return 0
+        def kill(self):
+            self.killed = True
+
+    fake = FakeProc()
+    monkeypatch.setattr(fw.subprocess, "Popen", lambda *a, **k: fake)
+
+    # A fake clock that advances past the 10s deadline in a few calls, and a
+    # no-op sleep, so the test does not actually wait 10 seconds.
+    class FakeClock:
+        def __init__(self):
+            self.t = 0
+        def time(self):
+            self.t += 3
+            return self.t
+
+    monkeypatch.setattr(fw.time, "time", FakeClock().time)
+    monkeypatch.setattr(fw.time, "sleep", lambda s: None)
+
+    try:
+        with fw._Agentio():
+            assert False, "expected RuntimeError"
+    except RuntimeError:
+        pass
+
+    assert fake.terminated is True
+
+def test_agentio_capture_surfaces_err_reply_instead_of_hanging(monkeypatch):
+    # Regression: every CAP error reply ("ERR rect\n" = 9 bytes, "ERR
+    # surface\n" = 12 bytes) is shorter than AGENTIO_HEADER_LEN (18). The old
+    # agentio_capture() did an unconditional recv_exact(AGENTIO_HEADER_LEN)
+    # first, which can never return for these replies — the CLI would block
+    # until the raw socket timeout instead of raising the server's message.
+    monkeypatch.setattr(fw, "_port_open", lambda port: True)  # skip spawning OpenOCD
+
+    class FakeSocket:
+        """Just enough of the socket API for _Agentio: recv() hands back
+        bytes from a fixed buffer, one chunk at a time, like a real socket."""
+        def __init__(self, data):
+            self.data = data
+            self.pos = 0
+        def settimeout(self, t):
+            pass
+        def sendall(self, b):
+            pass
+        def recv(self, n):
+            chunk = self.data[self.pos:self.pos + n]
+            self.pos += len(chunk)
+            return chunk
+        def close(self):
+            pass
+
+    fake = FakeSocket(b"ERR rect\n")
+    monkeypatch.setattr(fw.socket, "create_connection", lambda *a, **k: fake)
+
+    try:
+        fw.agentio_capture("lcd", (0, 0, 0, 0), 1, "unused.png")
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "rect" in str(e)

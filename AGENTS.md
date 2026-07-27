@@ -49,6 +49,10 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
+| `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel (verified on hardware 2026-07-26) |
+| `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold) |
+| `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch)              |
+| `fw type "text"`    | Type text through the fw2kb chord engine                                  |
 
 Add `--print` to `build`/`flash`/`rtt`/`test` to print the underlying
 command(s) instead of running them (useful for an agent to inspect what would
@@ -57,6 +61,11 @@ run without touching hardware).
 After `fw new-app <name>` you must add
 `add_subdirectory(apps/<name>)` to the top-level `CMakeLists.txt` yourself —
 the CLI only scaffolds the directory, it does not edit the top-level CMake.
+
+**`libs/onewili` is a git submodule.** A fresh clone or a new git worktree
+starts with that directory empty, and the configure then fails with
+"does not contain a CMakeLists.txt file". Run
+`git submodule update --init libs/onewili` once per checkout.
 
 **You do not need to export `PICO_SDK_PATH`.** The SDK and toolchain versions
 are pinned in `tools/fw.py` (`PICO_SDK_VERSION = "2.3.0"`,
@@ -174,6 +183,8 @@ through exactly this procedure.
   verified board header/driver code wins.
 - **Full implementation plan / spec**:
   `docs/superpowers/plans/2026-07-01-freewili2-bsp.md`.
+- **Agent E2E harness (input injection + screen capture)**:
+  `docs/drivers/agentio.md`.
 
 ## Naming note
 

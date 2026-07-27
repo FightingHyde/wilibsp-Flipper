@@ -20,6 +20,7 @@
 #include "hardware/gpio.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"
+#include "agentio/agentio.h"
 
 #define LCD_SPI spi1
 
@@ -123,6 +124,7 @@ void st7796_init(void) {
 void st7796_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
     cmd(0x2A, (const uint8_t[]){x0 >> 8, x0, x1 >> 8, x1}, 4);
     cmd(0x2B, (const uint8_t[]){y0 >> 8, y0, y1 >> 8, y1}, 4);
+    agentio_shadow_note_window(x0, y0, x1, y1);
 }
 
 // Open a RAMWR data session for the previously set window: CS low, RAMWR, DC high.
@@ -173,6 +175,7 @@ static void push_end(void) {
 static void push_pixels(const uint8_t *bytes, size_t n) {
     push_begin();
     spi_write_blocking(LCD_SPI, bytes, n);
+    agentio_shadow_note_pixels(bytes, n);
     push_end();
 }
 
@@ -181,8 +184,10 @@ void st7796_fill_screen(uint16_t color_be) {
     for (int x = 0; x < ST7796_W; x++) line[x] = color_be;
     st7796_set_window(0, 0, ST7796_W - 1, ST7796_H - 1);
     push_begin();
-    for (int y = 0; y < ST7796_H; y++)
+    for (int y = 0; y < ST7796_H; y++) {
         spi_write_blocking(LCD_SPI, (const uint8_t *)line, sizeof line);
+        agentio_shadow_note_pixels((const uint8_t *)line, sizeof line);
+    }
     push_end();
 }
 
@@ -196,8 +201,10 @@ void st7796_fill_rect(int x, int y, int w, int h, uint16_t color_be) {
     for (int i = 0; i < w; i++) line[i] = color_be;
     st7796_set_window(x, y, x + w - 1, y + h - 1);   // one block window
     push_begin();
-    for (int row = 0; row < h; row++)
+    for (int row = 0; row < h; row++) {
         spi_write_blocking(LCD_SPI, (const uint8_t *)line, (size_t)w * 2);
+        agentio_shadow_note_pixels((const uint8_t *)line, (size_t)w * 2);
+    }
     push_end();
 }
 
@@ -258,6 +265,11 @@ void st7796_flush_async(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
     st7796_set_window(x0, y0, x1, y1);            // CASET/RASET (blocking, small)
     // Open RAMWR data session (CS low, RAMWR, DC high) — reuse push_begin().
     push_begin();
+    // Mirror at DMA-trigger time: the caller guarantees the pixel buffer stays
+    // valid until done() fires, so reading it here is safe and avoids doing
+    // work in the DMA IRQ.
+    agentio_shadow_note_pixels((const uint8_t *)pixels,
+                               (size_t)(x1 - x0 + 1) * (y1 - y0 + 1) * 2);
     uint32_t n = (uint32_t)(x1 - x0 + 1) * (y1 - y0 + 1);  // pixel count
     dma_channel_config c = dma_channel_get_default_config(flush_dma_chan);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8); // 8-bit SPI, 2 bytes/px

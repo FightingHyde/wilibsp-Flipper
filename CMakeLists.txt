@@ -5,6 +5,10 @@ cmake_minimum_required(VERSION 3.13)
 set(PICO_BOARD freewili2 CACHE STRING "Board type")
 list(APPEND PICO_BOARD_HEADER_DIRS "${CMAKE_CURRENT_LIST_DIR}/bsp/boards")
 
+# agentio: remote input injection + screen capture for agent E2E verification.
+# OFF strips it entirely — no PSRAM shadow, no RTT buffers, no draw-path cost.
+option(FW2_AGENTIO "Build the agentio remote-control/capture harness" ON)
+
 include(pico_sdk_import.cmake)
 project(wilibsp C CXX ASM)
 set(CMAKE_C_STANDARD 11)
@@ -27,3 +31,4 @@ add_subdirectory(apps/hello_dvi)
 add_subdirectory(apps/toggleled)
 add_subdirectory(apps/hello_keyboard)
 add_subdirectory(apps/hello_charger)
+add_subdirectory(apps/hello_agentio)

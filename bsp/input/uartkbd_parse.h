@@ -91,6 +91,9 @@ typedef struct {
     uint8_t  frame[UARTKBD_FRAME_LEN];
     uint16_t buttons;                      /* bit N = uartkbd_btn_t N, 1 = down */
     uint8_t  flags;                        /* UARTKBD_FLAG_* */
+    uint16_t inject_mask;                  /* agentio: OR'd into every decoded
+                                            * frame, so an injected hold is not
+                                            * cancelled by real wire traffic */
     uint8_t  charger_raw[12];              /* frame bytes 10-21, last valid */
     bool     charger_valid;                /* any valid frame seen yet */
     bool     primed;                       /* first valid frame only latches
@@ -117,5 +120,11 @@ bool     uartkbd_parse_charger(const uartkbd_parser_t *p, uartkbd_charger_t *out
 float    uartkbd_charger_temp_c(uint16_t tspct);
 uint32_t uartkbd_parse_frames(const uartkbd_parser_t *p);
 uint32_t uartkbd_parse_errors(const uartkbd_parser_t *p);
+
+/* agentio button injection. The mask is OR'd into the decoded button bitmap
+ * after the active-low inversion and before edge detection, so injected holds
+ * survive real frames and injection exercises the genuine parse path. */
+void     uartkbd_parse_set_inject(uartkbd_parser_t *p, uint16_t mask);
+uint16_t uartkbd_parse_inject(const uartkbd_parser_t *p);
 
 #endif /* UARTKBD_PARSE_H */

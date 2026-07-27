@@ -10,7 +10,7 @@ Commands:
   fw new-app <name>  scaffold apps/<name> from apps/template
 Add --print to any build/flash/test command to print the command(s) instead of running.
 """
-import argparse, os, pathlib, shutil, socket, stat, subprocess, sys, time
+import argparse, os, pathlib, shutil, socket, stat, struct, subprocess, sys, time, zlib
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 BUILD_DIR = REPO_ROOT / "build"
@@ -19,6 +19,67 @@ OPENOCD_CFG = str(REPO_ROOT / "tools" / "openocd" / "freewili2.cfg")
 RTT_PORT = 9090
 # RP2350 SRAM is 0x20000000..0x20082000; scan the whole range for the RTT block.
 RTT_SETUP = 'rtt setup 0x20000000 0x82000 "SEGGER RTT"'
+AGENTIO_PORT = 9091          # RTT channel 1: agentio commands + pixels
+AGENTIO_CHANNEL = 1
+AGENTIO_MAGIC = b"FW2C"
+AGENTIO_HEADER_LEN = 18
+SURFACES = {"lcd": 0, "dvi": 1}
+# Button indices must match uartkbd_btn_t in bsp/input/uartkbd_parse.h.
+BUTTONS = ["grey", "yellow", "green", "blue", "red", "nav_center", "nav_up",
+           "nav_down", "nav_left", "nav_right", "home", "ok", "cancel", "page"]
+
+def packbits_decode(data, units):
+    """Decode PackBits-16 (see bsp/agentio/agentio_proto.h) into a list of
+    RGB565 values. `units` is the expected count; raises ValueError on
+    truncated or malformed input."""
+    out, i = [], 0
+    while i < len(data) and len(out) < units:
+        ctrl = data[i] - 256 if data[i] > 127 else data[i]
+        i += 1
+        if ctrl >= 0:
+            count = ctrl + 1
+            if i + count * 2 > len(data):
+                raise ValueError("truncated literal run")
+            for _ in range(count):
+                out.append((data[i] << 8) | data[i + 1])
+                i += 2
+        elif ctrl != -128:
+            count = 1 - ctrl
+            if i + 2 > len(data):
+                raise ValueError("truncated repeat run")
+            v = (data[i] << 8) | data[i + 1]
+            i += 2
+            out.extend([v] * count)
+        else:
+            raise ValueError("reserved control byte")
+    if len(out) < units:
+        raise ValueError(f"short payload: {len(out)} of {units} units")
+    return out[:units]
+
+def png_write(path, w, h, pixels):
+    """Write RGB565 `pixels` (row-major, w*h values) as an 8-bit RGB PNG.
+    Stdlib only — no Pillow."""
+    raw = bytearray()
+    for y in range(h):
+        raw.append(0)                       # filter type 0 (None) per scanline
+        for x in range(w):
+            v = pixels[y * w + x]
+            r, g, b = (v >> 11) & 0x1F, (v >> 5) & 0x3F, v & 0x1F
+            # scale 5/6-bit channels to 8-bit so full-scale maps to 255
+            raw += bytes(((r * 255 + 15) // 31,
+                          (g * 255 + 31) // 63,
+                          (b * 255 + 15) // 31))
+
+    def chunk(tag, payload):
+        body = tag + payload
+        return (struct.pack(">I", len(payload)) + body
+                + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF))
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)))
+        f.write(chunk(b"IDAT", zlib.compress(bytes(raw), 9)))
+        f.write(chunk(b"IEND", b""))
 
 # Pinned toolchain versions under ~/.pico-sdk. The SDK path used to come from an
 # ambient PICO_SDK_PATH (VS Code injects one) plus whatever landed in the CMake
@@ -87,6 +148,12 @@ def needs_configure():
     cached = _cached_sdk_path()
     if cached is None:
         return True
+    # A configure that failed part-way (missing submodule, bad path) leaves a
+    # CMakeCache.txt behind but no generator file. Without this check the cache
+    # looks valid, the configure is skipped, and the build dies on a missing
+    # build.ninja instead of just re-configuring.
+    if not (BUILD_DIR / "build.ninja").exists():
+        return True
     sdk = _pico_sdk_dir("sdk", PICO_SDK_VERSION)
     return sdk is not None and pathlib.Path(cached) != sdk
 
@@ -137,9 +204,13 @@ def flash_command(app):
     return _openocd_base() + ["-c", f"program {elf} verify reset exit"]
 
 def rtt_command():
+    """OpenOCD serving BOTH RTT channels: 0 (DIAG) and 1 (agentio). Only one
+    process can own the debug probe, so a running `fw rtt` doubles as the
+    session that `fw screenshot` / `fw press` reuse."""
     return _openocd_base() + [
         "-c", "init", "-c", RTT_SETUP, "-c", "rtt start",
-        "-c", f"rtt server start {RTT_PORT} 0"]
+        "-c", f"rtt server start {RTT_PORT} 0",
+        "-c", f"rtt server start {AGENTIO_PORT} {AGENTIO_CHANNEL}"]
 
 def _host_toolchain_args():
     """Extra `cmake` configure args that pin a host C compiler + Ninja for the
@@ -238,6 +309,112 @@ def run_rtt(seconds=0):
             proc.kill()
     return 0
 
+def _port_open(port):
+    try:
+        socket.create_connection(("127.0.0.1", port), timeout=0.3).close()
+        return True
+    except OSError:
+        return False
+
+class _Agentio:
+    """Connection to the agentio RTT channel. Reuses an OpenOCD already serving
+    AGENTIO_PORT (e.g. a running `fw rtt`); otherwise spawns one and tears it
+    down on exit."""
+    def __init__(self):
+        self.proc = None
+        self.sock = None
+
+    def _cleanup(self):
+        if self.sock:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            self.sock = None
+        if self.proc:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+            self.proc = None
+
+    def __enter__(self):
+        try:
+            if not _port_open(AGENTIO_PORT):
+                self.proc = subprocess.Popen(rtt_command(), cwd=REPO_ROOT,
+                                             stdout=subprocess.DEVNULL,
+                                             stderr=subprocess.DEVNULL)
+                deadline = time.time() + 10
+                while time.time() < deadline and not _port_open(AGENTIO_PORT):
+                    if self.proc.poll() is not None:
+                        raise RuntimeError("openocd exited — is the probe connected?")
+                    time.sleep(0.2)
+                if not _port_open(AGENTIO_PORT):
+                    raise RuntimeError(
+                        f"openocd did not open port {AGENTIO_PORT} within 10s")
+            self.sock = socket.create_connection(("127.0.0.1", AGENTIO_PORT), timeout=10)
+            self.sock.settimeout(30)
+        except BaseException:
+            # __exit__ is NOT called when __enter__ raises, so a spawned OpenOCD
+            # would leak and keep holding the debug probe.
+            self._cleanup()
+            raise
+        return self
+
+    def __exit__(self, *exc):
+        self._cleanup()
+        return False
+
+    def send(self, line):
+        self.sock.sendall((line + "\n").encode("ascii"))
+
+    def recv_exact(self, n):
+        buf = b""
+        while len(buf) < n:
+            chunk = self.sock.recv(n - len(buf))
+            if not chunk:
+                raise RuntimeError("agentio connection closed mid-transfer")
+            buf += chunk
+        return buf
+
+    def recv_line(self):
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = self.sock.recv(1)
+            if not chunk:
+                raise RuntimeError("agentio connection closed")
+            buf += chunk
+        return buf.decode("ascii", "replace").strip()
+
+def agentio_command(line):
+    """Send one command expecting an OK/ERR reply. Returns the reply text."""
+    with _Agentio() as a:
+        a.send(line)
+        return a.recv_line()
+
+def agentio_capture(surface, crop, scale, out_path):
+    """CAP + decode + PNG. Returns (w, h)."""
+    x, y, w, h = crop if crop else (0, 0, 0, 0)
+    with _Agentio() as a:
+        a.send(f"CAP {SURFACES[surface]} {x} {y} {w} {h} {scale}")
+        # Every ERR reply ("ERR rect\n", "ERR surface\n", ...) is shorter than
+        # the 18-byte capture header, so an unconditional recv_exact(18) can
+        # never return for one — it would hang until the socket times out
+        # instead of surfacing the server's error text. Check the 4-byte
+        # magic first; only read the rest of the header once it matches.
+        magic = a.recv_exact(4)
+        if magic != AGENTIO_MAGIC:
+            rest = a.recv_line()   # finish reading the "ERR <reason>" line
+            raise RuntimeError((magic.decode("ascii", "replace") + rest).strip())
+        hdr = magic + a.recv_exact(AGENTIO_HEADER_LEN - 4)
+        ow, oh = struct.unpack(">HH", hdr[10:14])
+        payload_len = struct.unpack(">I", hdr[14:18])[0]
+        payload = a.recv_exact(payload_len)
+    pixels = packbits_decode(payload, ow * oh)
+    png_write(out_path, ow, oh, pixels)
+    return ow, oh
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="fw")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -253,6 +430,20 @@ def main(argv=None):
                     help="capture for N seconds then exit (0 = until Ctrl+C)")
     sp = sub.add_parser("test"); sp.add_argument("--print", dest="show", action="store_true")
     sp = sub.add_parser("new-app"); sp.add_argument("name")
+
+    sp = sub.add_parser("screenshot")
+    sp.add_argument("-o", "--out", default="screenshot.png")
+    sp.add_argument("--surface", choices=sorted(SURFACES), default="lcd")
+    sp.add_argument("--crop", help="x,y,w,h")
+    sp.add_argument("--scale", type=int, default=1)
+    sp.add_argument("--print", dest="show", action="store_true")
+    for name in ("press", "hold", "release"):
+        sp = sub.add_parser(name); sp.add_argument("buttons")
+    sp = sub.add_parser("touch")
+    sp.add_argument("x", type=int); sp.add_argument("y", type=int)
+    sp.add_argument("--down", action="store_true")
+    sp.add_argument("--up", action="store_true")
+    sp = sub.add_parser("type"); sp.add_argument("text")
 
     a = p.parse_args(argv)
     if a.cmd == "configure":
@@ -277,6 +468,35 @@ def main(argv=None):
     elif a.cmd == "test":  _run(test_command(), a.show)
     elif a.cmd == "new-app":
         print("created", new_app(a.name))
+    elif a.cmd == "screenshot":
+        crop = tuple(int(v) for v in a.crop.split(",")) if a.crop else None
+        if crop is not None and len(crop) != 4:
+            print("--crop needs x,y,w,h", file=sys.stderr)
+            return 1
+        if a.show:
+            print(f"CAP {SURFACES[a.surface]} "
+                  f"{crop[0] if crop else 0} {crop[1] if crop else 0} "
+                  f"{crop[2] if crop else 0} {crop[3] if crop else 0} {a.scale}")
+            return 0
+        w, h = agentio_capture(a.surface, crop, a.scale, a.out)
+        print(f"wrote {a.out} ({w}x{h})")
+    elif a.cmd in ("press", "hold", "release"):
+        try:
+            idx = [BUTTONS.index(b.strip()) for b in a.buttons.split(",")]
+        except ValueError:
+            print(f"unknown button; known: {', '.join(BUTTONS)}", file=sys.stderr)
+            return 1
+        if a.cmd == "press":
+            for i in idx:
+                print(agentio_command(f"TAP {i}"))
+        else:
+            mask = 0 if a.cmd == "release" else sum(1 << i for i in idx)
+            print(agentio_command(f"BTN {mask:X}"))
+    elif a.cmd == "touch":
+        mode = 1 if a.down else (0 if a.up else 2)
+        print(agentio_command(f"TCH {a.x} {a.y} {mode}"))
+    elif a.cmd == "type":
+        print(agentio_command(f"TYPE {a.text}"))
     return 0
 
 if __name__ == "__main__":
