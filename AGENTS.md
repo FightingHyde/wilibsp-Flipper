@@ -29,11 +29,19 @@ built on. Read it before making changes.
 The umbrella header is `bsp/fw2.h` — include this from an app to pull in the
 board + drivers.
 
-**Status:** Tasks 1-8 of the implementation plan are done and building.
-**Task 9 (on-hardware smoke test) is PENDING** — nothing here has been
-verified running on physical hardware yet. Where this doc or others describe
-expected behavior (e.g. "white text, green LEDs, red touch dots"), treat it
-as the design intent, not a confirmed-working result, until Task 9 lands.
+**Status:** the v1 smoke test and every driver increment since have passed on
+real hardware — display, touch, LEDs, platform, I2S audio, PDM mics, CC1101
+radio, I2C sensors, DVI, and the agentio harness. The per-increment records
+live in `docs/superpowers/findings/`, summarized in
+`docs/hardware/facts.md` ("Hardware verification status") and tracked per
+peripheral in `docs/hardware/catalog.md`. Anything still marked TODO in the
+catalog (NFC, buttons, PIO-USB) is unverified because its driver has not been
+harvested yet.
+
+**Do not assume a doc's description of behavior is a confirmed result.** Where
+this repo describes what something does, check whether a findings file backs
+it. If none does, it is design intent — say so rather than repeating it as
+fact.
 
 ## Command vocabulary
 
@@ -162,9 +170,62 @@ not by writing one from scratch:
    `tests/CMakeLists.txt` entry so `fw test` covers it (see the
    `subghz`-repo pattern of splitting pure decision logic from hardware
    binding behind `#ifndef HOST_TEST`).
+6. **Verify it on the board and write up what happened** — see "Verify on
+   hardware" below. A harvest is not done when it compiles; every driver in
+   this BSP has a findings file behind it, and yours should too.
 
 The `skills/freewili2-add-driver/SKILL.md` skill in this repo walks an agent
 through exactly this procedure.
+
+## Verify on hardware — you can do this yourself now
+
+**"It builds" and "the host tests pass" are not evidence that a driver works.**
+This is an embedded BSP: nearly every bug that has cost real time here —
+the WS2812 first-frame latch, the audio LRCK slip, the PSRAM re-timing after
+the overclock, the active-low keyboard bits — was invisible to the compiler
+and to `fw test`. They were all found by running the code on the board.
+
+Historically an agent could not do that, so claims stopped at "builds clean".
+Since `agentio` (verified 2026-07-26) an agent can drive the board and see the
+panel directly, with no human present. **Use it.** With a CMSIS-DAP probe
+attached:
+
+    fw build <app> && fw flash <app>
+    fw screenshot -o shot.png     # then actually LOOK at the PNG
+    fw press green                # inject a button
+    fw touch 240 160              # inject a touch
+    fw type "hello"               # type through the chord engine
+    fw rtt -s 5                   # capture DIAG() output for 5 s
+
+See `docs/drivers/agentio.md` for the full surface and its limitations.
+
+**What good verification looks like:**
+
+- **Look at the screenshot.** Do not just check that the PNG was written —
+  read it and compare against what the code says it drew. A capture that
+  succeeds and shows the wrong thing is the failure mode worth catching.
+- **Drive the input path**, don't just render. If a change affects buttons,
+  touch, or text entry, inject and re-capture to prove the event reached the
+  app.
+- **Read the RTT log** (`fw rtt -s <seconds>`) alongside the screenshot —
+  `DIAG()` output catches what the panel does not show.
+- **Write down what happened**, including anything that failed or that you
+  could not test, in `docs/superpowers/findings/YYYY-MM-DD-<topic>-e2e.md`.
+  Follow the existing files. A findings doc that only records successes is
+  worth much less than one that is honest about gaps.
+- **Then update the status docs** — `docs/hardware/catalog.md` and the
+  "Hardware verification status" section of `docs/hardware/facts.md`.
+
+**If no probe is attached**, say so plainly and report the work as
+unverified — do not describe expected behavior in a way that reads like a
+result. `fw flash`/`fw rtt`/`fw screenshot` all need the probe; a board in
+BOOTSEL mass-storage mode can take a UF2 but gives you no RTT channel, so
+none of the agentio verbs work against it.
+
+**Gotcha:** back-to-back one-shot commands can fail with `openocd did not open
+port 9091 within 10s` because the previous OpenOCD has not released the probe.
+Leave a couple of seconds between them, or keep a `fw rtt` running — it holds
+the probe once and every one-shot verb reuses it.
 
 ## Where things live
 
@@ -173,7 +234,10 @@ through exactly this procedure.
 - **Hardware facts / invariants**: `docs/hardware/facts.md`.
 - **Peripheral status (done vs. TODO)**: `docs/hardware/catalog.md`.
 - **Per-driver usage docs**: `docs/drivers/*.md` (platform, display, touch,
-  leds, audio, pdm, radio, sensors, ir, usbhost, dvi).
+  leds, audio, pdm, radio, sensors, ir, usbhost, dvi, agentio).
+- **On-hardware verification records**: `docs/superpowers/findings/*-e2e.md` —
+  what was actually run on the board and what came back. Check here before
+  claiming any behavior is confirmed.
 - **Main-CPU control (OneWili over the FwGUI link)**: `libs/onewili/README.md`.
 - **Original hardware description**: `FwDisplayVibe.md` (repo root) — a
   secondary source, useful for the broader peripheral inventory (radio, NFC,
@@ -214,8 +278,12 @@ code written from scratch in this repo, not to harvested drivers.
   (invariant 5).
 - Trust `bsp/platform/board.h` over `FwDisplayVibe.md` for any pin or LED
   count discrepancy (invariant 6).
-- `bsp/leds/led_ui.c` (`led_spectrum_map`) depends on `bsp/gfx/palette.h`;
-  only the header is present in this repo today — `gfx/palette.c` is
-  **not** (harvest it from `subghz/src/gfx/palette.c` if you wire up
-  `led_ui_*`/`led_spectrum_map`). Current v1 apps (`template`,
-  `hello_display`) don't use `led_ui`, so this doesn't bite yet.
+- Allocate PSRAM buffers with `__uninitialized_psram("group")`, never by
+  casting `PSRAM_BASE` (invariant 2) — the linker's PSRAM region starts at
+  that same address, so a raw pointer silently aliases whatever the linker
+  placed there.
+- **Don't report a driver as working because it builds.** Flash it and check
+  it with `fw screenshot` / `fw rtt`, and record the result in
+  `docs/superpowers/findings/`. If no probe is attached, say the work is
+  unverified rather than describing intended behavior as an outcome. See
+  "Verify on hardware" above.

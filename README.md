@@ -45,6 +45,24 @@ fw rtt              # stream live SEGGER RTT diagnostics
 invoke `python tools/fw.py`. Run them from the repo root, or put `tools/` on
 your `PATH`.)
 
+### Checking your work on the board
+
+This is an embedded BSP: most bugs that matter here are invisible to the
+compiler and to the host tests. The `agentio` harness lets you — or an AI
+agent — drive the board and see the panel without anyone sitting at the
+hardware:
+
+```bash
+fw screenshot -o shot.png   # capture the LCD as a PNG, then look at it
+fw press green              # inject a button press
+fw touch 240 160            # inject a touch
+fw type "hello"             # type through the chord keyboard
+```
+
+Verify changes this way rather than stopping at "it builds", and record what
+you ran in `docs/superpowers/findings/`. Full surface and limitations:
+[`docs/drivers/agentio.md`](./docs/drivers/agentio.md).
+
 No hardware handy? Run the host-only unit tests instead (no Pico SDK, no
 debug probe):
 
