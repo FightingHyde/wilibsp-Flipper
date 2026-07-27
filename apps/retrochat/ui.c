@@ -1,0 +1,212 @@
+#include "ui.h"
+#include "fw2.h"
+#include "protocol.h"
+#include "pico/stdlib.h"
+#include <string.h>
+#include <stdio.h>
+
+#define SCALE      2
+#define CELL_W     (6 * SCALE)     // 12 px
+#define CELL_H     (8 * SCALE)     // 16 px
+#define STATUS_H   24
+#define CHAT_Y     STATUS_H
+#define CHAT_LINES 12
+#define CHAT_H     (CHAT_LINES * CELL_H)          // 192 -> chat ends at y=216
+#define GRID_Y     (CHAT_Y + CHAT_H)
+#define GRID_COLS  3
+#define GRID_ROWS  3
+// The chord-keyboard label bar is ALWAYS visible at the bottom; the canned
+// grid occupies the space between the chat log and the bar.
+#define KB_BAR_H   (CELL_H + 6)                   // 22
+#define KB_BAR_Y   (ST7796_H - KB_BAR_H)          // 298
+#define BTN_W      (ST7796_W / GRID_COLS)         // 160
+#define BTN_H      ((KB_BAR_Y - GRID_Y) / GRID_ROWS) // 27
+#define LINE_CHARS 40
+#define TAG_CHARS  3                              // "A7 "
+
+static inline uint16_t rgb565_be(uint8_t r, uint8_t g, uint8_t b) {
+    uint16_t c = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+    return (uint16_t)((c >> 8) | (c << 8));
+}
+
+#define COL_BG      rgb565_be(0, 0, 32)
+#define COL_STATUS  rgb565_be(24, 24, 72)
+#define COL_BTN     rgb565_be(40, 40, 96)
+#define COL_BTN_TXT rgb565_be(255, 255, 255)
+#define COL_OWN     rgb565_be(255, 255, 255)
+
+static uint16_t sender_color(uint8_t id) {
+    static const uint8_t pal[8][3] = {
+        { 255, 120, 120 }, { 120, 255, 120 }, { 120, 180, 255 }, { 255, 255, 120 },
+        { 255, 140, 255 }, { 120, 255, 255 }, { 255, 180, 100 }, { 180, 255, 180 },
+    };
+    const uint8_t *c = pal[id & 7];
+    return rgb565_be(c[0], c[1], c[2]);
+}
+
+// Chat line ring. Each stored line is pre-formatted to <= LINE_CHARS chars.
+typedef struct { char text[LINE_CHARS + 1]; uint16_t color; bool own; } chat_line_t;
+static chat_line_t s_lines[CHAT_LINES];
+static unsigned s_nlines;
+static uint8_t s_self;
+
+static void chat_redraw(void) {
+    st7796_fill_rect(0, CHAT_Y, ST7796_W, CHAT_H, COL_BG);
+    for (unsigned i = 0; i < s_nlines; i++) {
+        const chat_line_t *l = &s_lines[i];
+        int len = (int)strlen(l->text);
+        int x = l->own ? (ST7796_W - len * CELL_W) : 0;
+        st7796_draw_text(x, CHAT_Y + (int)i * CELL_H, SCALE, l->color, COL_BG, l->text);
+    }
+}
+
+static void push_line(const char *text, uint16_t color, bool own) {
+    if (s_nlines == CHAT_LINES) {
+        memmove(&s_lines[0], &s_lines[1], (CHAT_LINES - 1) * sizeof(chat_line_t));
+        s_nlines--;
+    }
+    chat_line_t *l = &s_lines[s_nlines++];
+    strncpy(l->text, text, LINE_CHARS);
+    l->text[LINE_CHARS] = '\0';
+    l->color = color;
+    l->own = own;
+}
+
+void ui_add_message(uint8_t sender, const char *text, bool own) {
+    uint16_t color = own ? COL_OWN : sender_color(sender);
+    char line[LINE_CHARS + 1];
+    unsigned tlen = strlen(text);
+    // First line carries the sender tag; long payloads wrap to continuation lines.
+    unsigned first = LINE_CHARS - TAG_CHARS;
+    snprintf(line, sizeof line, "%02X %.*s", sender, (int)first, text);
+    push_line(line, color, own);
+    for (unsigned off = first; off < tlen; off += LINE_CHARS) {
+        snprintf(line, sizeof line, "%.*s", LINE_CHARS, text + off);
+        push_line(line, color, own);
+    }
+    chat_redraw();
+}
+
+void ui_set_status(bool txing, bool selftest) {
+    st7796_fill_rect(0, 0, 200, STATUS_H, COL_STATUS);
+    st7796_draw_text(4, 4, SCALE, COL_BTN_TXT, COL_STATUS,
+                     txing ? "TX..." : (selftest ? "SELFTEST" : "LISTENING"));
+}
+
+void ui_set_stats(unsigned crc_err, int peak) {
+    char buf[24];
+    // 8-step signal bar: tiers 128..16384 (all reachable from int16_t range).
+    int bars = 0;
+    for (int t = 128; t <= peak && bars < 8; t <<= 1) bars++;
+    snprintf(buf, sizeof buf, "E%-4u S%d ID%02X", crc_err % 10000u, bars, s_self);
+    st7796_fill_rect(200, 0, ST7796_W - 200, STATUS_H, COL_STATUS);
+    st7796_draw_text(204, 4, SCALE, COL_BTN_TXT, COL_STATUS, buf);
+}
+
+static void grid_draw(void) {
+    for (int i = 0; i < 9; i++) {
+        int cx = (i % GRID_COLS) * BTN_W, cy = GRID_Y + (i / GRID_COLS) * BTN_H;
+        int ch = (i / GRID_COLS == GRID_ROWS - 1) ? (KB_BAR_Y - cy) : BTN_H;
+        st7796_fill_rect(cx + 1, cy + 1, BTN_W - 2, ch - 2, COL_BTN);
+        const char *lbl = (i < PROTO_NUM_CANNED) ? proto_canned[i] : "RESEND";
+        int len = (int)strlen(lbl);
+        st7796_draw_text(cx + (BTN_W - len * CELL_W) / 2,
+                         cy + (ch - CELL_H) / 2, SCALE, COL_BTN_TXT, COL_BTN, lbl);
+    }
+}
+
+// FW2 soft-menu button colors (wire order), per apps/hello_keyboard/main.c.
+#define COL_KB_GRAY   0x9AD6
+#define COL_KB_YELLOW 0x06FF
+#define COL_KB_GREEN  0x0012
+#define COL_KB_BLUE   0xF800
+#define COL_KB_RED    0x0780
+
+#define KB_BTN_W    ((ST7796_W - 12) / 5)   // 93, matches firmware menu
+#define KB_BTN_P    (KB_BTN_W + 3)          // 96 pitch
+#define DRAFT_Y     GRID_Y
+#define DRAFT_H     (KB_BAR_Y - GRID_Y)     // draft strip between grid top and bar
+
+// Always-visible chord label bar at the bottom of the screen.
+void ui_kb_bar(const char *labels[5]) {
+    static const uint16_t cols[5] =
+        { COL_KB_GRAY, COL_KB_YELLOW, COL_KB_GREEN, COL_KB_BLUE, COL_KB_RED };
+    st7796_fill_rect(0, KB_BAR_Y, ST7796_W, KB_BAR_H, rgb565_be(0, 0, 0));
+    for (int i = 0; i < 5; i++) {
+        int x = i * KB_BTN_P;
+        st7796_fill_rect(x, KB_BAR_Y, KB_BTN_W, KB_BAR_H, cols[i]);
+        int l = (int)strlen(labels[i]);
+        if (l > 5) l = 5;
+        st7796_draw_text(x + (KB_BTN_W - l * CELL_W) / 2,
+                         KB_BAR_Y + (KB_BAR_H - CELL_H) / 2, SCALE,
+                         COL_BTN_TXT, cols[i], labels[i]);
+    }
+}
+
+void ui_compose_show(const char *draft, const char *labels[5]) {
+    // Draft strip (replaces the canned grid): tail that fits + cursor cell.
+    st7796_fill_rect(0, DRAFT_Y, ST7796_W, DRAFT_H, COL_BG);
+    unsigned len = strlen(draft);
+    unsigned max = LINE_CHARS - 1;                     // leave the cursor cell
+    const char *tail = (len > max) ? draft + (len - max) : draft;
+    st7796_draw_text(0, DRAFT_Y + (DRAFT_H - CELL_H) / 2, SCALE,
+                     COL_OWN, COL_BG, tail);
+    unsigned tl = strlen(tail);
+    st7796_fill_rect((int)tl * CELL_W,
+                     DRAFT_Y + (DRAFT_H - CELL_H) / 2 + CELL_H - 2,
+                     CELL_W, 2, COL_OWN);
+    ui_kb_bar(labels);
+}
+
+void ui_compose_hide(void) {
+    st7796_fill_rect(0, GRID_Y, ST7796_W, KB_BAR_Y - GRID_Y, COL_BG);
+    grid_draw();      // the label bar below stays; caller refreshes it
+}
+
+void ui_init(uint8_t self_id) {
+    s_self = self_id;
+    s_nlines = 0;
+    st7796_fill_screen(COL_BG);
+    ui_set_status(false, false);
+    ui_set_stats(0, 0);
+    grid_draw();
+}
+
+// Touch: act on release for taps; long-press (>=1 s) in the status bar toggles
+// self-test (fires while still held, then swallows the release).
+static bool s_was_down, s_swallow;
+
+void ui_poll_reset(void) {
+    s_was_down = false;
+    s_swallow = false;
+}
+
+ui_action_t ui_poll(void) {
+    static uint16_t down_x, down_y;
+    static absolute_time_t down_t;
+    uint16_t x, y;
+    bool down = ft6336_poll(&x, &y);
+
+    if (down && !s_was_down) {         // press
+        s_was_down = true; s_swallow = false;
+        down_x = x; down_y = y; down_t = get_absolute_time();
+        return UI_NONE;
+    }
+    if (down && s_was_down && !s_swallow && down_y < STATUS_H &&
+        absolute_time_diff_us(down_t, get_absolute_time()) >= 1000000) {
+        s_swallow = true;              // long-press fired; ignore the release
+        return UI_SELFTEST_TOGGLE;
+    }
+    if (!down && s_was_down) {         // release
+        s_was_down = false;
+        if (s_swallow) return UI_NONE;
+        if (down_y >= GRID_Y && down_y < KB_BAR_Y) {   // bar is display-only
+            int row = (down_y - GRID_Y) / BTN_H;
+            if (row >= GRID_ROWS) row = GRID_ROWS - 1;
+            int cell = row * GRID_COLS + down_x / BTN_W;
+            if (cell >= 0 && cell < PROTO_NUM_CANNED) return (ui_action_t)cell;
+            if (cell == 8) return UI_RESEND;
+        }
+    }
+    return UI_NONE;
+}

@@ -18,12 +18,20 @@
 // 480x320; the rest is HSTX-generated border (not stored).
 #define HSTX_DVI_W 640
 #define HSTX_DVI_H 480
+// Max stored DVI video width. Override with a compile definition (see below).
+#ifndef HSTX_VID_W_MAX
 #define HSTX_VID_W_MAX 480
-// Max stored DVI video height. 480x320 = the full panel size. The ~327 KB SRAM
-// command buffer (see hstx_dvi.c) leaves ample room in a copy_to_ram demo; lower
-// this #define if the DVI driver is ever linked alongside the USB/FatFs + LCD-strip
-// stack in one binary. Taller frames are center-cropped on DVI.
+#endif
+// Max stored DVI video height. 480x320 = the full panel size and a ~327 KB SRAM
+// command buffer (see hstx_dvi.c). Both maxima are compile-time because they size
+// that buffer -- passing a smaller vid_h to hstx_dvi_init() does NOT shrink it.
+// Lower them with a target compile definition when the DVI driver is linked
+// alongside another RAM-hungry stack (LCD strip, USB/FatFs), e.g.
+//   target_compile_definitions(freewili2_bsp PUBLIC HSTX_VID_H_MAX=240)
+// Taller frames are center-cropped on DVI.
+#ifndef HSTX_VID_H_MAX
 #define HSTX_VID_H_MAX 320
+#endif
 
 // Configure clk_hstx (= clk_sys/2), the HSTX block and GPIO 12-19, build the
 // scanout command buffer for a vid_w x vid_h video centered in 640x480, and start

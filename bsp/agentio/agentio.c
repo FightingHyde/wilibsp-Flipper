@@ -52,10 +52,16 @@ static bool     s_tap_active;
 static uint32_t s_tap_deadline;
 static uint32_t s_tap_reads0;
 
-/* One output row at a time. 480 is the widest either surface can be
- * (ST7796_W, and HSTX_VID_W_MAX for DVI). */
-static uint16_t s_row[ST7796_W];
-static uint8_t  s_enc[ST7796_W * 2 + ST7796_W / 128 + 8];
+/* One output row at a time, sized to the widest surface we can be asked for.
+ * Derive it rather than hard-coding 480: HSTX_VID_W_MAX is overridable by a
+ * target compile definition (see bsp/display/hstx_dvi.h), so an app that raises
+ * it would overflow a buffer pinned to ST7796_W. Both are compile-time, so this
+ * costs nothing and stays correct however the DVI maxima are configured. */
+#define AGENTIO_ROW_MAX \
+    ((ST7796_W) > (HSTX_VID_W_MAX) ? (ST7796_W) : (HSTX_VID_W_MAX))
+static uint16_t s_row[AGENTIO_ROW_MAX];
+/* PackBits worst case: every unit literal, plus one control byte per 128. */
+static uint8_t  s_enc[AGENTIO_ROW_MAX * 2 + AGENTIO_ROW_MAX / 128 + 8];
 
 static bool queue_push(uint16_t mask)
 {

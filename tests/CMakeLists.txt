@@ -186,6 +186,37 @@ target_include_directories(test_dvi_osd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME dvi_osd COMMAND test_dvi_osd)
 
+# --- apps/retrochat acoustic-modem pure logic (see docs/superpowers in outer repo) ---
+set(RCMODEM ${CMAKE_CURRENT_SOURCE_DIR}/../apps/retrochat/modem)
+add_executable(test_rc_crc16 test_rc_crc16.c ${RCMODEM}/crc16.c)
+target_include_directories(test_rc_crc16 PRIVATE ${RCMODEM} ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME rc_crc16 COMMAND test_rc_crc16)
+
+add_executable(test_rc_frame test_rc_frame.c ${RCMODEM}/frame.c ${RCMODEM}/crc16.c)
+target_include_directories(test_rc_frame PRIVATE ${RCMODEM} ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME rc_frame COMMAND test_rc_frame)
+
+add_executable(test_rc_msgq test_rc_msgq.c ${RCMODEM}/msgq.c)
+target_include_directories(test_rc_msgq PRIVATE ${RCMODEM} ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME rc_msgq COMMAND test_rc_msgq)
+
+add_executable(test_rc_afsk_mod test_rc_afsk_mod.c ${RCMODEM}/afsk_mod.c)
+target_include_directories(test_rc_afsk_mod PRIVATE ${RCMODEM} ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_rc_afsk_mod m)
+add_test(NAME rc_afsk_mod COMMAND test_rc_afsk_mod)
+
+add_executable(test_rc_afsk_demod test_rc_afsk_demod.c
+    ${RCMODEM}/afsk_demod.c ${RCMODEM}/afsk_mod.c ${RCMODEM}/frame.c ${RCMODEM}/crc16.c)
+target_include_directories(test_rc_afsk_demod PRIVATE ${RCMODEM} ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_rc_afsk_demod m)
+add_test(NAME rc_afsk_demod COMMAND test_rc_afsk_demod)
+
+add_executable(test_rc_afsk_loopback test_rc_afsk_loopback.c
+    ${RCMODEM}/afsk_demod.c ${RCMODEM}/afsk_mod.c ${RCMODEM}/frame.c ${RCMODEM}/crc16.c)
+target_include_directories(test_rc_afsk_loopback PRIVATE ${RCMODEM} ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_rc_afsk_loopback m)
+add_test(NAME rc_afsk_loopback COMMAND test_rc_afsk_loopback)
+
 # --- bsp/keyboard fw2kb chord engine (harvested from ../wilikeyboard) ---
 set(BSPKBD ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/keyboard)
 add_executable(test_fw2kb test_fw2kb.c ${BSPKBD}/fw2kb.c)
@@ -239,3 +270,13 @@ target_include_directories(test_agentio_shadow PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
     ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME agentio_shadow COMMAND test_agentio_shadow)
+
+add_executable(test_rc_compose
+    test_rc_compose.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../apps/retrochat/compose.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/keyboard/fw2kb.c)
+target_include_directories(test_rc_compose PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../apps/retrochat
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME rc_compose COMMAND test_rc_compose)
