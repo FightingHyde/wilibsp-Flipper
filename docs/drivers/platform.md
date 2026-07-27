@@ -31,10 +31,59 @@ int main(void) {
 `bsp/platform/diag.h`: `DIAG(...)` → RTT channel 0 (`fw rtt` to view; no
 floats). `bsp/platform/psram.h`: `psram_init()` / `psram_selftest()` for the
 8 MB APS6404L — a thin shim over the SDK's `hardware_psram` (see the PSRAM
-section below). `bsp/platform/ioexp.h`: `ioexp_init()` / `ioexp_antenna()`
-(PCAL6524, I2C1 addr 0x23). `bsp/platform/spi_bus.h`:
+section below). `bsp/platform/ioexp.h`: `ioexp_init()` / `ioexp_antenna()` /
+`ioexp_vref()` (PCAL6524, I2C1 addr 0x23 — see "GPIO reference voltage (VIO)"
+below). `bsp/platform/spi_bus.h`:
 `spi_bus_acquire_cc1101()` / `_release()` / `_cs()` — arbitration for the
 shared SPI1 bus, ready for when the CC1101 driver is harvested.
+
+## GPIO reference voltage (VIO)
+
+The FreeWili 2's user GPIO header is level shifted, and the shifters have no
+rail until the I/O expander connects one.
+
+**The failure mode is silent.** With no VIO, a main-CPU GPIO still toggles
+internally, `ow_io_gpio_read_all()` still reports the new state, and every
+OneWili call still returns `OW_OK` — only the header pin stays put. Nothing
+logs an error. When a pin "does nothing", check VIO first.
+
+`ioexp_init()` defaults to `VREF_EXT_PIN`, matching the stock FreeWili 2
+firmware (`Fw2Display.cpp` boots at `fw2VREFConnection::vVIO`). That rail comes
+from whatever is wired to the external Trig_IN/VREF pin — right for a board in
+a system, and nothing at all on a bare board. So any app driving the header at
+a known logic level sets it explicitly:
+
+```c
+board_init();          // runs ioexp_init() -> VREF_EXT_PIN
+ioexp_vref(VREF_3V3);  // connect the internal 3.3 V rail to VIO
+```
+
+`ioexp_vref_get()` returns the current selection.
+
+| Selection | Rail | Expander pin (port 2) |
+|---|---|---|
+| `VREF_NONE` | disconnected — header cannot drive | — |
+| `VREF_3V3` | internal 3.3 V | `P3V3_VREF`, bit 6 |
+| `VREF_5V0` | internal 5.0 V | `P5V_VREF`, bit 5 |
+| `VREF_EXT_PIN` | external Trig_IN/VREF pin (**`ioexp_init()` default**) | `EXT_VREF`, bit 3 |
+| `VREF_PROG_VOUT` | programmable Vout | `INT_VREF`, bit 4 |
+
+The four are mutually exclusive — `ioexp_vref()` clears all of them and asserts
+at most one. `VREF_PROG_VOUT` only produces a voltage once the **main** CPU has
+enabled the programmable Vout (`ow_io_analog_out_set_v_prog_vout()` over
+OneWili); it was not verified with Vout enabled.
+
+The rails can be read back on-board without a scope: **GPIO 45 = ADC input 5**
+is the VIO monitor and **GPIO 41 = ADC input 1** the Vout monitor, both behind a
+2:1 divider (mV = `adc_read() * 6600 / 4095`). `apps/hello_vref` sweeps every
+selection, prints both rails, and toggles main-CPU GPIO 25 every 2 s. Verified
+on hardware 2026-07-26 — including the caveats — in
+`docs/superpowers/findings/2026-07-26-gpio-vref-e2e.md`.
+
+Caveat on the default: `VREF_EXT_PIN` measured ~4.81 V on a bare board with
+nothing connected to the external pin — close enough to the 5 V rail's 4.84 V to
+be suspicious, and not explained. Do not rely on `VREF_EXT_PIN` meaning "the
+external pin's voltage" until someone drives that pin to a known level.
 
 ## PSRAM (8 MB APS6404L)
 

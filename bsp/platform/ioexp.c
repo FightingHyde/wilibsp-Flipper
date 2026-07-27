@@ -33,10 +33,21 @@
 #define P0_HP1_EN 0x01   // P0 bit 0: USB host port 1 power, active-high
 static uint8_t s_p0 = P0_OUT;
 
-// Shadow of the Port-2 output byte. Default matches ioexp_init(): IR power OFF.
+// Shadow of the Port-2 output byte. Default matches ioexp_init(): IR power OFF,
+// GPIO VREF on the external Trig_IN/VREF pin (what the stock firmware boots to).
 #define P2_IR_PWR 0x01  // P2 bit 0, active-high IR power (pin table: sensorview ioexp_pcal6524.h)
 #define P2_USB_DPLUS 0x02  // P2 bit 1, active-high: USB DEVICE D+ 1.5K pull-up
-static uint8_t s_p2 = 0x00;
+// GPIO VIO reference-voltage selects, active-high and mutually exclusive
+// (pin table: fw2IOExpanderDisplay.h EXT_VREF/INT_VREF/P5V_VREF/P3V3_VREF).
+#define P2_EXT_VREF  0x08  // P2 bit 3: external Trig_IN/VREF pin
+#define P2_INT_VREF  0x10  // P2 bit 4: programmable Vout
+#define P2_5V0_VREF  0x20  // P2 bit 5: internal 5.0 V rail
+#define P2_3V3_VREF  0x40  // P2 bit 6: internal 3.3 V rail
+#define P2_VREF_MASK (P2_EXT_VREF | P2_INT_VREF | P2_5V0_VREF | P2_3V3_VREF)
+static uint8_t s_p2 = P2_EXT_VREF;
+// Which VREF_* the caller last asked for, so ioexp_vref_get() can report intent
+// rather than making the caller decode P2 bits.
+static uint8_t s_vref = VREF_EXT_PIN;
 
 static void write_outputs(uint8_t p0, uint8_t p1) {
     uint8_t out[4] = { REG_OUTPUT0, p0, p1, s_p2 };
@@ -85,18 +96,45 @@ void ioexp_usb_dplus(bool on) {
     DIAG("ioexp: USB D+ pull-up (P2_1) -> %d\n", on ? 1 : 0);
 }
 
+// Map a VREF_* selection to its Port-2 bit. VREF_NONE (and anything unknown)
+// yields 0 = every rail disconnected.
+static uint8_t vref_bit(uint8_t sel) {
+    switch (sel) {
+        case VREF_3V3:       return P2_3V3_VREF;
+        case VREF_5V0:       return P2_5V0_VREF;
+        case VREF_EXT_PIN:   return P2_EXT_VREF;
+        case VREF_PROG_VOUT: return P2_INT_VREF;
+        default:             return 0;
+    }
+}
+
+void ioexp_vref(uint8_t sel) {
+    // Clear all four first, then assert one — the rails must never be tied together.
+    s_p2 = (uint8_t)((s_p2 & (uint8_t)~P2_VREF_MASK) | vref_bit(sel));
+    s_vref = sel;
+    write_outputs(s_p0, s_p1);   // write_outputs always emits the current s_p2
+    DIAG("ioexp: VREF select %d -> P2 0x%x\n", (int)sel, s_p2 & P2_VREF_MASK);
+}
+
+uint8_t ioexp_vref_get(void) { return s_vref; }
+
 bool ioexp_init(void) {
     // Default to the CC1101 + 433 MHz antenna (keeps the CC1101 on SPI1 for
     // cc1101_init); main() then auto-selects the antenna per band.
     s_p0 = P0_OUT;                                          // HP1 (USB) power OFF
     s_p1 = (uint8_t)(P1_BASE | ant_bits(ANT_CC1101_433));   // mic + HP2 (USB) power OFF
-    s_p2 = 0x00;                                            // IR power OFF
+    // VREF defaults to the external Trig_IN/VREF pin, matching the stock FreeWili2
+    // firmware (Fw2Display.cpp boots at fw2VREFConnection::vVIO). An app that needs
+    // the header at a known logic level must still call ioexp_vref() — see ioexp.h.
+    s_p2 = P2_EXT_VREF;                                     // IR power OFF, VREF = ext pin
+    s_vref = VREF_EXT_PIN;
     uint8_t out[4] = { REG_OUTPUT0, s_p0, s_p1, s_p2 };
     uint8_t cfg[4] = { REG_CONFIG0, 0x00, 0x00, 0x04 };   // all output except MCLR (P2_2)
     // Outputs FIRST, then directions (glitch-free: a pin drives its latched value
     // only when its direction flips to output; keeps SCREEN_NRST from pulsing low).
     bool ok = i2c_write_blocking(IOEXP_I2C, IOEXP_ADDR, out, 4, false) == 4;
     ok = (i2c_write_blocking(IOEXP_I2C, IOEXP_ADDR, cfg, 4, false) == 4) && ok;
-    DIAG("ioexp: init %s (LCD reset released; CC1101 + 433 MHz antenna default)\n", ok ? "ok" : "NAK");
+    DIAG("ioexp: init %s (LCD reset released; CC1101 + 433 MHz antenna; GPIO VREF = ext pin)\n",
+         ok ? "ok" : "NAK");
     return ok;
 }

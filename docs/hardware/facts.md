@@ -273,6 +273,40 @@ below) — hardware-verified 2026-07-04 via `apps/hello_sensors` (4/4 chip-ids,
 gravity vector PASS; human stimulus tests pending — see
 `docs/superpowers/findings/2026-07-04-i2c-sensors-e2e.md`).
 
+The **GPIO reference voltage (VIO) select** (`ioexp_vref()`) **passed on
+2026-07-26** via `apps/hello_vref`: all five selections drive distinct PCAL6524
+port-2 bits, `VREF_3V3` takes VIO from ~25 mV to ~3.27 V (measured on the
+display CPU's own rail monitor, GPIO 45 = ADC input 5, 2:1 divider), and
+main-CPU GPIO 25 toggles 0/1 at 2 s under that rail. The header pin's own
+voltage was **not** measured, and `VREF_EXT_PIN` read ~4.81 V with nothing
+connected to the external pin — unexplained. Full record:
+`docs/superpowers/findings/2026-07-26-gpio-vref-e2e.md`.
+
+## Header GPIO is silently dead without a VIO rail
+
+The user GPIO header is level shifted; the shifters need a reference voltage
+that the display I/O expander gates (`ioexp_vref()`, see AGENTS.md invariant 11).
+The trap is that **nothing reports the failure**: with no VIO the main-CPU GPIO
+still toggles internally, `ow_io_gpio_read_all()` reports the new state, and
+every OneWili status is `OW_OK` — the header pin just never moves. `ioexp_init()`
+defaults to `VREF_EXT_PIN` (as the stock firmware does), which supplies nothing
+on a bare board, so apps driving the header call `ioexp_vref(VREF_3V3)`
+themselves.
+
+## GPIO VIO rail monitors: GPIO 41 and GPIO 45 (display-side ADC)
+
+The display RP2350 can measure the two GPIO-header supply rails itself, so VREF
+work does not need a scope. From `rpADC::initFW2Display()` +
+`fwAboutPanelVREF.cpp` in the stock FreeWili 2 firmware:
+
+- **GPIO 41 = ADC input 1** — programmable Vout monitor ("Vout")
+- **GPIO 45 = ADC input 5** — GPIO header VIO monitor ("Vio")
+
+Both sit behind a 2:1 divider, so millivolts = `adc_read() * 6600 / 4095` at the
+12-bit default. Neither pin is claimed by `bsp/platform/board.h`; there is no
+`PIN_*` define for them yet. Confirmed on hardware 2026-07-26 (the VIO tap
+tracked every `ioexp_vref()` selection).
+
 ## Radio: GDO0 capture runs on PIO2, not PIO0
 
 `bsp/radio/gdo_capture.c` sets `s_pio = pio2` and calls `pio_set_gpio_base(pio2, 16)`

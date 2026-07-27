@@ -1,6 +1,12 @@
 /* toggleled — blink MAIN-CPU GPIO 25 from the display CPU over the FwGUI
  * link (UART0 @ 8 Mbaud, HW flow control on GPIO 0-3). The main CPU must
- * run the stock FreeWili 2 firmware, which carries the OneWili bridge. */
+ * run the stock FreeWili 2 firmware, which carries the OneWili bridge.
+ *
+ * NOTE the ioexp_vref() call below: the GPIO header is level shifted and the
+ * pin will not move without a VIO rail, however happily the toggles report
+ * OK. ioexp_init() defaults VIO to the external Trig_IN/VREF pin, which is
+ * nothing at all on a bare board — so a demo that wants a visible 3.3 V
+ * square wave has to say so. See bsp/platform/ioexp.h. */
 #include "fw2.h"
 #include "platform/diag.h"
 #include "pico/stdlib.h"
@@ -9,6 +15,7 @@
 
 int main(void) {
     board_init();   /* must precede ow_open_fwgui: uart_init reads clk_peri */
+    ioexp_vref(VREF_3V3);   /* required: no VIO rail => the header pin cannot drive */
 
     static ow_device dev;   /* ~37 KB of buffers - far too big for the 2 KB stack */
     /* ow_open_fwgui currently cannot fail (it only sends the reset byte,

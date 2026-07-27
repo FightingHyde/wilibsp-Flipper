@@ -10,6 +10,8 @@
 // ioexp_init() also releases the LCD reset (SCREEN_NRST), enables the I2C bus
 // pulls, routes the backlight (GPIO25) to the RP2350, and sets the SPI1 bus
 // buffer directions. Call after I2C1 is up and before using the display or radio.
+// It also puts the user-GPIO reference voltage on the external pin — see the
+// VIO section below before driving any header GPIO.
 #ifndef IOEXP_H
 #define IOEXP_H
 #include <stdbool.h>
@@ -44,4 +46,41 @@ void ioexp_usb_pwr(bool on);
 // (P2_1 is configured as an output driven low = device detached); the PIO-USB
 // device firmware asserts it AFTER its stack is ready to signal USB attach.
 void ioexp_usb_dplus(bool on);
+
+// ---------------------------------------------------------------------------
+// GPIO reference voltage (VIO). READ THIS BEFORE DRIVING ANY HEADER GPIO.
+//
+// The FreeWili2's user GPIO header is LEVEL SHIFTED, and the shifters are dead
+// until one of four expander pins connects a rail to VIO. A main-CPU GPIO with
+// no VIO still toggles internally and still reads back correctly over OneWili —
+// the header pin simply does not move. There is no error and nothing in the log
+// to tell you: the only symptom is a dead pin. If you are driving the header,
+// you must know which rail is on it.
+//
+// ioexp_init() defaults to VREF_EXT_PIN, matching the stock FreeWili2 firmware
+// (Fw2Display.cpp boots at fw2VREFConnection::vVIO). That is a rail supplied by
+// whatever is wired to the external Trig_IN/VREF pin — so it is the right
+// default for a board in a system, and NOT a usable level on a bare board.
+// **An app that drives the header at a known logic level must call ioexp_vref()
+// explicitly** (see apps/toggleled, apps/hello_vref).
+//
+// The four pins are mutually exclusive: ioexp_vref() clears all of them and then
+// asserts at most one. Pin table + semantics mirror
+// fw2IOExpanderDisplay::setVREFConnection() in the stock firmware; the labels in
+// parentheses are what its "GPIO Voltage" panel shows.
+//
+// Verified on hardware 2026-07-26 — including what was NOT confirmed:
+// docs/superpowers/findings/2026-07-26-gpio-vref-e2e.md.
+enum {
+    VREF_NONE      = 0,   // all four disconnected — header pins cannot drive
+    VREF_3V3       = 1,   // internal 3.3 V rail       ("3.3V",      P3V3_VREF, P2 bit 6)
+    VREF_5V0       = 2,   // internal 5.0 V rail       ("5.0",       P5V_VREF,  P2 bit 5)
+    VREF_EXT_PIN   = 3,   // external Trig_IN/VREF pin ("Ext Pin",   EXT_VREF,  P2 bit 3) — ioexp_init() default
+    VREF_PROG_VOUT = 4,   // programmable Vout         ("Prog Vout", INT_VREF,  P2 bit 4)
+                          //   needs the MAIN cpu to enable Vout first
+                          //   (ow_io_analog_out_set_v_prog_vout) — untested with Vout on
+};
+void ioexp_vref(uint8_t sel);
+// Which rail ioexp_vref() last selected (VREF_* ). VREF_EXT_PIN after ioexp_init().
+uint8_t ioexp_vref_get(void);
 #endif

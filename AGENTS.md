@@ -146,6 +146,22 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
    invariant 1 — it's the single most common way to break a fresh build).
 9. **No need to calibrate touch screen**. The touch screen is pre calibrated at the factory.
 10. **Audio Speaker** The speaker for first production FreeWili 2 is 0.5 Watt. Please enforce this limit when using the speaker. Also, make sure to disable the audio driver when not in use.
+11. **Header GPIO needs a VIO rail — `ioexp_vref()`.** The user GPIO header is
+    level shifted and the shifters are dead without a reference voltage, which
+    the **display** I/O expander gates (PCAL6524 port 2: `P3V3_VREF` bit6,
+    `P5V_VREF` bit5, `EXT_VREF` bit3, `INT_VREF` bit4, mutually exclusive).
+    **This failure is silent.** A main-CPU GPIO with no VIO still toggles
+    internally, `ow_io_gpio_read_all()` still reports the new state, every
+    OneWili call still returns `OW_OK` — and the header pin never moves. There
+    is no error and no log line. If you are debugging "the pin does nothing",
+    check VIO before anything else. `ioexp_init()` defaults to `VREF_EXT_PIN`
+    (matching the stock firmware, `fw2VREFConnection::vVIO`), which is whatever
+    external circuitry supplies — i.e. nothing on a bare board. **Any app that
+    drives the header at a known logic level must call `ioexp_vref(VREF_3V3)`
+    (or `VREF_5V0`) itself**; `apps/toggleled` and `apps/hello_vref` do.
+    `ioexp_vref_get()` reports the current selection. Verified on hardware
+    2026-07-26, caveats included:
+    `docs/superpowers/findings/2026-07-26-gpio-vref-e2e.md`.
 
 ## How to add a driver
 
@@ -279,6 +295,8 @@ code written from scratch in this repo, not to harvested drivers.
   (invariant 5).
 - Trust `bsp/platform/board.h` over `FwDisplayVibe.md` for any pin or LED
   count discrepancy (invariant 6).
+- If your code drives a **header GPIO**, call `ioexp_vref()` — without a VIO
+  rail the pin is silently dead while every status code says OK (invariant 11).
 - Allocate PSRAM buffers with `__uninitialized_psram("group")`, never by
   casting `PSRAM_BASE` (invariant 2) — the linker's PSRAM region starts at
   that same address, so a raw pointer silently aliases whatever the linker

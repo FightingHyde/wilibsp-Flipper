@@ -10,7 +10,7 @@ procedure once you've picked a row.
 
 | Peripheral | Driver location | Notes |
 |---|---|---|
-| Platform core (clocks/vreg, I/O expander, PSRAM, SPI bus arbitration, RTT diag) | `bsp/platform/{board,ioexp,psram,spi_bus}.{c,h}`, `bsp/platform/diag.h` | Harvested from `subghz`/`usbcamfw`. Board bring-up (`board_init()`), PCAL6524 I/O expander, APS6404L PSRAM, shared-SPI1 arbitration primitives, SEGGER RTT diagnostics. |
+| Platform core (clocks/vreg, I/O expander, PSRAM, SPI bus arbitration, RTT diag) | `bsp/platform/{board,ioexp,psram,spi_bus}.{c,h}`, `bsp/platform/diag.h` | Harvested from `subghz`/`usbcamfw`. Board bring-up (`board_init()`), PCAL6524 I/O expander, APS6404L PSRAM, shared-SPI1 arbitration primitives, SEGGER RTT diagnostics. Expander also gates the GPIO-header reference voltage — `ioexp_vref()`, off by default, hardware-verified 2026-07-26 (`apps/hello_vref`, see docs/drivers/platform.md). |
 | Display — ST7796 (480x320 panel, ST7789-class controller) | `bsp/display/{st7796,font5x7}.{c,h}` | SPI1, blocking + async DMA flush, 5x7 bitmap font. |
 | Touch — FT6336U capacitive touch | `bsp/input/{ft6336,ft6336_map}.{c,h}` | Polled over I2C1, no INT pin wired, coordinates pre-oriented to the 480x320 panel. |
 | LEDs — WS2812 x16 | `bsp/leds/{led_color,ws2812_driver}.{c,h}`, `bsp/leds/ws2812.pio` | `pio1`, GPIO 21, inverted output. `FW2_LED_COUNT` = 16 (see facts.md discrepancy record). `led_ui.{c,h}` and its `led_spectrum_map` dependency (`bsp/gfx/palette.c`, host-tested) are harvested and wired. |
