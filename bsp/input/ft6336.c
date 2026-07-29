@@ -13,10 +13,16 @@
 #define FT6336_REG_TD_STATUS   0x02   // low nibble = number of touch points
 #define FT6336_REG_CHIP_ID     0xA3   // chip-id register (presence check)
 
-// Write the register pointer (no stop), then read n bytes.
+// Write the register pointer (no stop), then read n bytes. TIMEOUT reads:
+// this poll runs every UI-loop pass, and an untimed blocking read turned a
+// wedged I2C bus into a permanently hung UI (bench incident 2026-07-29,
+// first real two-finger session — cores alive, UI parked in i2c waits).
+// 2 ms is ~10x a normal 11-byte transaction at 400 kHz.
 static bool ft_rd(uint8_t reg, uint8_t* buf, uint8_t n) {
-    if (i2c_write_blocking(FT6336_I2C, FT6336_ADDR, &reg, 1, true) != 1) return false;
-    return i2c_read_blocking(FT6336_I2C, FT6336_ADDR, buf, n, false) == (int)n;
+    if (i2c_write_timeout_us(FT6336_I2C, FT6336_ADDR, &reg, 1, true,
+                             2000) != 1) return false;
+    return i2c_read_timeout_us(FT6336_I2C, FT6336_ADDR, buf, n, false,
+                               2000) == (int)n;
 }
 
 // Write one register = val.
