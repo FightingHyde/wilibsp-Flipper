@@ -76,12 +76,15 @@ void audio_i2s_duplex_init(uint32_t sample_rate) {
     // clk_sys, so at 250 MHz it is 250e6/61 = 4.0984 MHz (not 4.096) -> the codec's
     // MCLK-direct DAC consumes at 4.0984e6/256 = 16009 Hz. If LRCK were set to the
     // nominal 16000 Hz the DAC would slip ~9 samples/s -> an audible ~9 Hz tick
-    // (verified on-hardware: +/-9.2 Hz sidebands on the 1 kHz carrier). Deriving the
-    // clkdiv from the SAME integer `ticks` makes LRCK == MCLK/256 exactly, so data
-    // in == data out and the slip vanishes. clkdiv = clk/(96 * MCLK/256) = ticks*8/3.
-    // Net pitch error vs nominal is +0.06 % (16009 vs 16000 Hz) = inaudible.
-    float div = (float)(8u * ticks) / 3.0f;
-    pio_sm_set_clkdiv(DPX_PIO, DPX_SM, div);
+    // (verified on-hardware: +/-9.2 Hz sidebands on the 1 kHz carrier). Deriving
+    // the clkdiv from the SAME integer `ticks` is necessary but NOT sufficient:
+    // the old 96*fs PIO program needed clkdiv = 8*ticks/3, and unless ticks is
+    // divisible by 3 the 8.8-bit fractional divider rounds — LRCK then drifts
+    // against MCLK by one full sample every ~0.84 s at 48 kHz (~7.8 s at 16 kHz)
+    // and the MCLK-clocked codec audibly clicks on each slip (bench-measured,
+    // root-caused 2026-07-24). The PIO program now runs 4 cycles/bit = 128*fs,
+    // so the divider is the INTEGER 2*ticks and LRCK == MCLK/256 EXACTLY.
+    pio_sm_set_clkdiv_int_frac(DPX_PIO, DPX_SM, (uint16_t)(2u * ticks), 0);
     pio_sm_set_enabled(DPX_PIO, DPX_SM, true);
 }
 
