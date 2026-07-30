@@ -31,6 +31,9 @@
 // Shadow of the Port-0 output byte: SPI1 buffer dirs + USB host port 1 power.
 // Default matches ioexp_init(): HP1 OFF.
 #define P0_HP1_EN 0x01   // P0 bit 0: USB host port 1 power, active-high
+#define IOEXP_I2C_TIMEOUT_US 2000   /* bounded: a device holding the
+                                     * bus must not park boot */
+
 static uint8_t s_p0 = P0_OUT;
 
 // Shadow of the Port-2 output byte. Default matches ioexp_init(): IR power OFF,
@@ -51,7 +54,7 @@ static uint8_t s_vref = VREF_EXT_PIN;
 
 static void write_outputs(uint8_t p0, uint8_t p1) {
     uint8_t out[4] = { REG_OUTPUT0, p0, p1, s_p2 };
-    i2c_write_blocking(IOEXP_I2C, IOEXP_ADDR, out, 4, false);
+    i2c_write_timeout_us(IOEXP_I2C, IOEXP_ADDR, out, 4, false, IOEXP_I2C_TIMEOUT_US);
 }
 
 // Map an ANT_* value to the V1_1/V2_1 output bits within Port 1.
@@ -132,8 +135,8 @@ bool ioexp_init(void) {
     uint8_t cfg[4] = { REG_CONFIG0, 0x00, 0x00, 0x04 };   // all output except MCLR (P2_2)
     // Outputs FIRST, then directions (glitch-free: a pin drives its latched value
     // only when its direction flips to output; keeps SCREEN_NRST from pulsing low).
-    bool ok = i2c_write_blocking(IOEXP_I2C, IOEXP_ADDR, out, 4, false) == 4;
-    ok = (i2c_write_blocking(IOEXP_I2C, IOEXP_ADDR, cfg, 4, false) == 4) && ok;
+    bool ok = i2c_write_timeout_us(IOEXP_I2C, IOEXP_ADDR, out, 4, false, IOEXP_I2C_TIMEOUT_US) == 4;
+    ok = (i2c_write_timeout_us(IOEXP_I2C, IOEXP_ADDR, cfg, 4, false, IOEXP_I2C_TIMEOUT_US) == 4) && ok;
     DIAG("ioexp: init %s (LCD reset released; CC1101 + 433 MHz antenna; GPIO VREF = ext pin)\n",
          ok ? "ok" : "NAK");
     return ok;
