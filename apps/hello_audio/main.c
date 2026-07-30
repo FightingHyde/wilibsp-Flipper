@@ -36,6 +36,33 @@ int main(void) {
                      "AUDIO OUT + MIC");
     board_backlight_set(1);
 
+
+    // The audio codec's rail may be off at boot: request it and wait for the
+    // apply (docs/drivers/power.md). On firmware whose rails are already
+    // on, the first status frame proves it and the wait falls through;
+    // on firmware that sends no status frames there is nothing to wait
+    // for and the app proceeds as before.
+    uartkbd_init();
+    picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_AUDIO));
+    {
+        absolute_time_t give_up   = make_timeout_time_ms(10000);
+        absolute_time_t no_frames = make_timeout_time_ms(4000);
+        uint32_t rails;
+        while (!time_reached(give_up)) {
+            uartkbd_task();
+            picpwr_task();
+            if (picpwr_rails(&rails)) {
+                if (rails & picpwr_zone_bit(PICPWR_ZONE_AUDIO)) break;
+            } else if (time_reached(no_frames)) {
+                break;
+            }
+            sleep_ms(25);
+        }
+        DIAG("picpwr: audio codec's rail %s\n",
+             (picpwr_rails(&rails) && (rails & picpwr_zone_bit(PICPWR_ZONE_AUDIO)))
+                 ? "up" : "state unknown");
+    }
+
     codec_nau88c10_init();
     bool codec_ok = codec_nau88c10_input_ok();
     if (codec_ok) DIAG("codec: input path ready\n");
@@ -72,6 +99,8 @@ int main(void) {
     absolute_time_t t_state = get_absolute_time();
     uint32_t blk = 0;
     for (;;) {
+        uartkbd_task();
+        picpwr_task();
         int64_t held = absolute_time_diff_us(t_state, get_absolute_time());
         if (state == ST_SILENCE && held > 3000000) {
             state = ST_SPEAKER; t_state = get_absolute_time();

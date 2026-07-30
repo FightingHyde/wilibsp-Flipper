@@ -17,11 +17,42 @@ int main(void) {
 
     // --- Phase 1: probe ---
     ioexp_antenna(ANT_CC1101_433);          // route the 433 MHz antenna
+
+    // The sub-GHz radio's rail may be off at boot: request it and wait for the
+    // apply (docs/drivers/power.md). On firmware whose rails are already
+    // on, the first status frame proves it and the wait falls through;
+    // on firmware that sends no status frames there is nothing to wait
+    // for and the app proceeds as before.
+    uartkbd_init();
+    picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_SUBGHZ));
+    {
+        absolute_time_t give_up   = make_timeout_time_ms(10000);
+        absolute_time_t no_frames = make_timeout_time_ms(4000);
+        uint32_t rails;
+        while (!time_reached(give_up)) {
+            uartkbd_task();
+            picpwr_task();
+            if (picpwr_rails(&rails)) {
+                if (rails & picpwr_zone_bit(PICPWR_ZONE_SUBGHZ)) break;
+            } else if (time_reached(no_frames)) {
+                break;
+            }
+            sleep_ms(25);
+        }
+        DIAG("picpwr: sub-GHz radio's rail %s\n",
+             (picpwr_rails(&rails) && (rails & picpwr_zone_bit(PICPWR_ZONE_SUBGHZ)))
+                 ? "up" : "state unknown");
+    }
+
     bool ok = cc1101_init();                // DIAGs PARTNUM/VERSION internally
     DIAG("cc1101: probe %s\n", ok ? "PASS" : "FAIL");
     if (!ok) {
         DIAG("cc1101: halting — no radio on SPI1 (check bus/power/antenna)\n");
-        while (1) tight_loop_contents();
+        while (1) {
+        uartkbd_task();
+        picpwr_task();
+        tight_loop_contents();
+    }
     }
 
     // --- Phase 2: RSSI sweep across the 433 MHz ISM band ---

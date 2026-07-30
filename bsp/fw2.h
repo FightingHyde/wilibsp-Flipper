@@ -11,6 +11,8 @@
 #include "display/hstx_dvi.h"   // (harvested: 640x480p60 DVI over HSTX, GPIO 12-19)
 #include "display/dvi_osd.h"    // (harvested: software OSD for the DVI video region)
 #include "input/ft6336.h"   // (Task 5)
+#include "input/uartkbd.h"  // coprocessor link: buttons in, commands out
+#include "input/picpwr.h"   // power-zone requests (docs/drivers/power.md)
 #include "leds/ws2812_driver.h" // (Task 6)
 #include "audio/tone_gen.h"          // (Task 1)
 #include "audio/vu_meter.h"          // (Task 1)
