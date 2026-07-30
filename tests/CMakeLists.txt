@@ -271,6 +271,14 @@ target_include_directories(test_agentio_shadow PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME agentio_shadow COMMAND test_agentio_shadow)
 
+add_executable(test_picpwr_frame
+    test_picpwr_frame.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/input/picpwr_frame.c)
+target_include_directories(test_picpwr_frame PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME picpwr_frame COMMAND test_picpwr_frame)
+
 add_executable(test_rc_compose
     test_rc_compose.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../apps/retrochat/compose.c
