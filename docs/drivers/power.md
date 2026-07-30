@@ -106,7 +106,7 @@ zone 1 is bit 0 of the **last** byte and zone 17 is bit 0 of the first.
 | 9 | *Flag, not a rail*: status-LED enable | set | When set, the device's status LED shows heartbeat/activity and the application CPUs mirror it. Clear for LED-quiet operation. Safe either way; no rail moves |
 | 10 | Addressable RGB LEDs | no | — |
 | 11 | Analog subsystem (DAC, ADC, op-amps) | no | — |
-| 12 | No confirmed load | no | Leave in its default state. Not required for the LCD (verified: apps draw with it off); video-output involvement unverified |
+| 12 | No confirmed load | no | Leave in its default state. Verified not required for the LCD (apps draw with it off) or the video output (signal, sink detection and hotplug all unaffected with it off) |
 | 13 | NFC + low-frequency RFID | no | — |
 | 14 | USB-serial bridge | with USB cable | Managed automatically on cable attach/detach |
 | 15 | CAN controller + transceiver | no | — |
