@@ -62,6 +62,8 @@ static void accept_frame(uartkbd_parser_t *p)
     p->flags = decode_flags(p->frame);
     memcpy(p->charger_raw, &p->frame[10], sizeof p->charger_raw);
     p->charger_valid = true;
+    memcpy(p->status_raw, &p->frame[2], sizeof p->status_raw);
+    p->status_valid = true;
     uint16_t nb = (uint16_t)(decode_buttons(p->frame) | p->inject_mask);
     if (!p->primed) {
         p->primed = true;
@@ -163,4 +165,17 @@ void uartkbd_parse_set_inject(uartkbd_parser_t *p, uint16_t mask)
 uint16_t uartkbd_parse_inject(const uartkbd_parser_t *p)
 {
     return p->inject_mask;
+}
+
+void uartkbd_parse_resync(uartkbd_parser_t *p)
+{
+    p->state = 0;
+    p->count = 0;
+}
+
+bool uartkbd_parse_status_raw(const uartkbd_parser_t *p, uint8_t out[20])
+{
+    if (!p->status_valid) return false;
+    memcpy(out, p->status_raw, sizeof p->status_raw);
+    return true;
 }

@@ -96,6 +96,10 @@ typedef struct {
                                             * cancelled by real wire traffic */
     uint8_t  charger_raw[12];              /* frame bytes 10-21, last valid */
     bool     charger_valid;                /* any valid frame seen yet */
+    uint8_t  status_raw[20];               /* full payload (frame bytes 2-21),
+                                            * last valid — rail state lives
+                                            * here (see picpwr_rails_decode) */
+    bool     status_valid;
     bool     primed;                       /* first valid frame only latches
                                              * the baseline (coprocessor boot
                                              * frames carry garbage bits);
@@ -109,6 +113,13 @@ typedef struct {
 
 void     uartkbd_parse_init(uartkbd_parser_t *p);
 void     uartkbd_parse_byte(uartkbd_parser_t *p, uint8_t b);
+/* Drop any partially collected frame and return to sync hunt. Latched
+ * state (buttons, charger, status payload, counters) is preserved. */
+void     uartkbd_parse_resync(uartkbd_parser_t *p);
+/* Copy of the last valid frame's 20-byte payload; false until one has
+ * been seen. */
+bool     uartkbd_parse_status_raw(const uartkbd_parser_t *p,
+                                  uint8_t out[20]);
 bool     uartkbd_parse_next_event(uartkbd_parser_t *p, uartkbd_event_t *ev);
 uint16_t uartkbd_parse_buttons(const uartkbd_parser_t *p);
 uint8_t  uartkbd_parse_flags(const uartkbd_parser_t *p);
