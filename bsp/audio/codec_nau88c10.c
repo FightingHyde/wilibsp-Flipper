@@ -11,11 +11,20 @@
 
 #define CODEC_ADDR 26   // 0x1A, from the vendor driver
 
+/* Every codec transfer is time-bounded: the codec shares I2C1 with the
+ * touch controller and sensors, and a device that loses its supply
+ * mid-transfer can hold the bus, which would otherwise park an untimed
+ * transfer forever. 2 ms is well over a 2-byte transfer at 400 kHz.
+ * Failed transfers are reported and skipped; init continues so a caller
+ * can report an absent codec rather than hang. */
+#define CODEC_I2C_TIMEOUT_US 2000
+
 static void codec_write(uint8_t reg, uint16_t val) {
     // NAU88C10 register write: 7-bit register + 9-bit value packed as
     // byte0 = reg<<1 | val[8], byte1 = val[7:0] (vendor CODEC_IO_Write).
     uint8_t msg[2] = { (uint8_t)((reg << 1) | ((val >> 8) & 1)), (uint8_t)(val & 0xFF) };
-    int rc = i2c_write_blocking(i2c1, CODEC_ADDR, msg, 2, false);
+    int rc = i2c_write_timeout_us(i2c1, CODEC_ADDR, msg, 2, false,
+                                 CODEC_I2C_TIMEOUT_US);
     if (rc != 2) DIAG("codec: i2c write reg 0x%02x failed (%d)\n", reg, rc);
 }
 
@@ -149,9 +158,11 @@ void codec_nau88c10_dump(void) {
     for (uint8_t reg = 0; reg <= 0x45; reg++) {
         uint8_t addr_byte = (uint8_t)(reg << 1);
         uint8_t val[2] = { 0, 0 };
-        int rc = i2c_write_blocking(i2c1, CODEC_ADDR, &addr_byte, 1, true);
+        int rc = i2c_write_timeout_us(i2c1, CODEC_ADDR, &addr_byte, 1, true,
+                                      CODEC_I2C_TIMEOUT_US);
         if (rc != 1) { DIAG("codec: dump write reg 0x%02x failed (%d)\n", reg, rc); return; }
-        rc = i2c_read_blocking(i2c1, CODEC_ADDR, val, 2, false);
+        rc = i2c_read_timeout_us(i2c1, CODEC_ADDR, val, 2, false,
+                                 CODEC_I2C_TIMEOUT_US);
         if (rc != 2) { DIAG("codec: dump read 0x%02x failed (%d)\n", reg, rc); return; }
         DIAG("codec: reg 0x%02x = 0x%03x\n", reg, (unsigned)(((val[0] & 0x01) << 8) | val[1]));
     }
@@ -164,8 +175,10 @@ void codec_nau88c10_dac_mute(bool mute) {
 static uint16_t codec_read(uint8_t reg) {
     uint8_t addr_byte = (uint8_t)(reg << 1);
     uint8_t val[2] = { 0, 0 };
-    if (i2c_write_blocking(i2c1, CODEC_ADDR, &addr_byte, 1, true) != 1) return 0xFFFF;
-    if (i2c_read_blocking(i2c1, CODEC_ADDR, val, 2, false) != 2) return 0xFFFF;
+    if (i2c_write_timeout_us(i2c1, CODEC_ADDR, &addr_byte, 1, true,
+                             CODEC_I2C_TIMEOUT_US) != 1) return 0xFFFF;
+    if (i2c_read_timeout_us(i2c1, CODEC_ADDR, val, 2, false,
+                            CODEC_I2C_TIMEOUT_US) != 2) return 0xFFFF;
     return (uint16_t)(((val[0] & 0x01) << 8) | val[1]);
 }
 

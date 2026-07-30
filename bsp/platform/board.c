@@ -70,7 +70,43 @@ void board_backlight_set(uint8_t level) {
     gpio_put(PIN_LCD_BL, level != 0);
 }
 
+/* A device interrupted mid-transfer — a supply that moved under it, or a
+ * reset while it was driving — can hold SDA low and wedge the bus for
+ * every other device on it. Clocking SCL with SDA released lets that
+ * device finish the byte it thinks it is sending, after which a STOP
+ * returns the bus to idle. Runs before the I2C function is assigned. */
+static void i2c1_bus_recover(void) {
+    gpio_init(PIN_I2C1_SDA);
+    gpio_init(PIN_I2C1_SCL);
+    gpio_set_dir(PIN_I2C1_SDA, GPIO_IN);          /* released, pulled up */
+    gpio_pull_up(PIN_I2C1_SDA);
+    gpio_pull_up(PIN_I2C1_SCL);
+    gpio_set_dir(PIN_I2C1_SCL, GPIO_OUT);
+    gpio_put(PIN_I2C1_SCL, 1);
+    sleep_us(10);
+    if (gpio_get(PIN_I2C1_SDA)) {                 /* bus already idle */
+        gpio_set_dir(PIN_I2C1_SCL, GPIO_IN);
+        return;
+    }
+    for (int i = 0; i < 9 && !gpio_get(PIN_I2C1_SDA); i++) {
+        gpio_put(PIN_I2C1_SCL, 0);
+        sleep_us(5);
+        gpio_put(PIN_I2C1_SCL, 1);
+        sleep_us(5);
+    }
+    /* STOP: SDA low->high while SCL is high. */
+    gpio_set_dir(PIN_I2C1_SDA, GPIO_OUT);
+    gpio_put(PIN_I2C1_SDA, 0);
+    sleep_us(5);
+    gpio_put(PIN_I2C1_SCL, 1);
+    sleep_us(5);
+    gpio_set_dir(PIN_I2C1_SDA, GPIO_IN);
+    sleep_us(5);
+    gpio_set_dir(PIN_I2C1_SCL, GPIO_IN);
+}
+
 void board_i2c1_init(void) {
+    i2c1_bus_recover();
     i2c_init(i2c1, 400 * 1000);
     gpio_set_function(PIN_I2C1_SDA, GPIO_FUNC_I2C);
     gpio_set_function(PIN_I2C1_SCL, GPIO_FUNC_I2C);
