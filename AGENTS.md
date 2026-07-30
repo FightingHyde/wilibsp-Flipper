@@ -163,6 +163,40 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
     2026-07-26, caveats included:
     `docs/superpowers/findings/2026-07-26-gpio-vref-e2e.md`.
 
+## Peripheral power zones — request rails BEFORE touching hardware
+
+The board's power sequencer boots with most peripheral rails **OFF**
+(audio codec, CAN, radios, RGB LEDs, the analog subsystem, ...). A driver
+that reads garbage, NAKs, or produces silence is very often an unpowered
+rail, not a code bug — check power before debugging the driver. The
+boot-on set is sequencer-firmware-defined and can change between firmware
+versions: **never rely on it; request what you need, every time.**
+
+The pattern for any app using a peripheral (see `docs/drivers/power.md`
+for the full zone map, per-zone cautions, and the protocol):
+
+```c
+uartkbd_init();                                       // link to the sequencer
+picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_AUDIO)); // or _CAN, _RGB_LEDS, ...
+// rails take ~1 s to apply; THEN init the peripheral
+...
+while (true) {
+    uartkbd_task();
+    picpwr_task();     // re-asserts your rails if the sequencer drops them
+    ...
+}
+```
+
+Rules that cost real bench time:
+
+- Request rails **before** initializing peripherals on them; a rail
+  rising mid-session can glitch a shared I2C bus (run bus recovery after
+  a rail apply if the bus was live during it).
+- Read the zone map before switching anything **off** — some zones blank
+  the display, drop your debug probe, or risk filesystem corruption.
+- Never set mask bits above zone 17; the API strips them (they are
+  reserved — `docs/drivers/power.md`).
+
 ## "GPIO" is ambiguous on this board — ASK which one
 
 **When a request mentions GPIO, stop and ask the user which kind before writing
