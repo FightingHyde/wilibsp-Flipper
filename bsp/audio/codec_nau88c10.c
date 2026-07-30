@@ -103,17 +103,25 @@ void codec_nau88c10_init(void) {
 //     on for headphone, and the speaker is silenced via its own volume register.
 //   - reg 0x36 is the speaker volume (post-split): muting it silences the
 //     speaker while the shared amp + headphone (0x38=0x01) stay alive.
-// Speaker-only  = R3 0xED + 0x36 0x3F (spk vol) + 0x38 0x04 (HP off).  [proven]
+// Speaker-only  = R3 0xED + 0x36 spk vol (capped) + 0x38 0x04 (HP off). [proven]
 // Headphone-only= R3 0xED + 0x36 0x40 (spk muted) + 0x38 0x01 (HP on).
 #define NAU_38_HP_OFF       0x0004u   // headphone amp off (speaker-only)
 #define NAU_38_HP_ON        0x0001u   // headphone amp on
-#define NAU_36_SPK_FULL     0x003Fu   // speaker volume full scale
+// Speaker-path ceiling. The on-board speaker is 8 ohm, 300 mW rated /
+// 500 mW max; the BTL speaker amp at 5 V boost delivers ~1 W into 8 ohm
+// at the 0 dB gain setting (2.83 Vrms) and clips near 1.2 W at settings
+// above it. 300 mW needs <= 1.55 Vrms = -5.2 dB from the 0 dB point, so
+// the speaker route is capped at -6 dB (register 0x39 - 6 = 0x33): a
+// worst-case full-scale sine delivers ~250 mW, with the 500 mW absolute
+// maximum ~3 dB further away. The headphone/jack path is unrestricted —
+// this cap protects only the speaker.
+#define NAU_36_SPK_CEIL     0x0033u   // speaker volume ceiling (-6 dB)
 #define NAU_36_SPK_MUTE     0x0040u   // speaker volume mute (bit6)
 
 void codec_nau88c10_set_output(codec_out_t out) {
     if (out == CODEC_OUT_SPEAKER) {
         codec_write(0x03, 0x00ED);             // output amp + mixer enabled
-        codec_write(0x36, NAU_36_SPK_FULL);    // speaker volume full scale
+        codec_write(0x36, NAU_36_SPK_CEIL);    // speaker volume: capped (see above)
         codec_write(0x37, 0x0000);             // mono/headphone mixer path off
         codec_write(0x38, NAU_38_HP_OFF);      // headphone amp off
         codec_write(0x45, 0x0005);             // 5V speaker boost
