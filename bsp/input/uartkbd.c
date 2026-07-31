@@ -157,3 +157,39 @@ void uartkbd_inject_set(uint16_t mask)
      * the flag stays raised and the frame goes out on a later task() call. */
     s_synth_pending = true;
 }
+
+bool uartkbd_status_raw(uint8_t out[20])
+{
+    return uartkbd_parse_status_raw(&s_parser, out);
+}
+
+bool uartkbd_cmd_send(const uint8_t *frame, size_t len)
+{
+    if (s_dma_chan < 0) return false;
+    /* Command gate: break wakes the receiver, then it announces readiness
+     * with a bare 0xC9. */
+    uart_set_break(UARTKBD_UART, true);
+    sleep_ms(2);
+    uart_set_break(UARTKBD_UART, false);
+    /* The activity byte can land mid-frame from the parser's point of
+     * view: scan raw ring bytes ahead of the parser, then drop whatever
+     * partial frame was in flight. Bytes consumed here are discarded —
+     * the next status frame refreshes every latched field. */
+    bool active = false;
+    absolute_time_t deadline = make_timeout_time_ms(500);
+    while (!active && !time_reached(deadline)) {
+        uint32_t wr = (uint32_t)(dma_channel_hw_addr(s_dma_chan)->write_addr
+                                 - (uintptr_t)s_ring) & (RING_SIZE - 1);
+        while (s_rd != wr) {
+            uint8_t b = s_ring[s_rd];
+            s_rd = (s_rd + 1) & (RING_SIZE - 1);
+            if (b == 0xC9) { active = true; break; }
+        }
+        tight_loop_contents();
+    }
+    uartkbd_parse_resync(&s_parser);
+    sleep_ms(5);
+    uart_write_blocking(UARTKBD_UART, frame, len);
+    sleep_ms(50);                       /* let the frame drain the link */
+    return active;
+}
