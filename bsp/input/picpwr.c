@@ -117,6 +117,6 @@ void picpwr_task(void)
         return;
     }
     picpwr_cfg_t cfg = s_cache;
-    cfg.awake = rails | s_desired;
+    cfg.awake = picpwr_reassert_awake(s_cache.awake, rails, s_desired);
     if (picpwr_send(&cfg)) missing = false;
 }

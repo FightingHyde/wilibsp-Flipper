@@ -80,6 +80,44 @@ static void test_rails_decode(void)
     ASSERT_EQ(picpwr_rails_decode(p), 0x01FFFFu);
 }
 
+/* A re-assert is a SUPERSET of what was already requested. Because any
+ * zone bit left clear in awake switches that rail OFF, a mask rebuilt
+ * from a status snapshot switches off every rail the snapshot failed to
+ * report (docs/drivers/power.md). These cases pin that it cannot. */
+static void test_reassert_is_superset(void)
+{
+    const uint32_t audio = picpwr_zone_bit(PICPWR_ZONE_AUDIO);
+    const uint32_t probe = picpwr_zone_bit(PICPWR_ZONE_DEBUG_PROBE);
+    const uint32_t disp  = picpwr_zone_bit(PICPWR_ZONE_DISPLAY);
+
+    /* The regression: a zone that was sent, but that a stale snapshot
+     * reports off and that is not in `desired`, must still survive.
+     * Rebuilding from (rails | desired) alone would drop it. */
+    ASSERT_EQ(picpwr_reassert_awake(disp | probe, audio, audio),
+              disp | probe | audio);
+
+    /* Every input is retained; nothing a caller asked for is cleared. */
+    ASSERT_EQ(picpwr_reassert_awake(disp, probe, audio),
+              disp | probe | audio);
+
+    /* An all-zero snapshot cannot clear the cached request. */
+    ASSERT_EQ(picpwr_reassert_awake(disp | audio, 0, 0), disp | audio);
+
+    /* Monotonic: the result is always a superset of each input. */
+    uint32_t r = picpwr_reassert_awake(disp, probe, audio);
+    ASSERT_EQ(r & disp, disp);
+    ASSERT_EQ(r & probe, probe);
+    ASSERT_EQ(r & audio, audio);
+
+    /* Reserved bits above zone 17 never survive, whichever input
+     * carried them. */
+    ASSERT_EQ(picpwr_reassert_awake(0xFE0000u, 0, audio), audio);
+    ASSERT_EQ(picpwr_reassert_awake(0, 0xFE0000u, audio), audio);
+    ASSERT_EQ(picpwr_reassert_awake(0, 0, 0xFE0000u | audio), audio);
+    ASSERT_EQ(picpwr_reassert_awake(0xFFFFFFu, 0xFFFFFFu, 0xFFFFFFu),
+              PICPWR_ZONE_MASK_ALL);
+}
+
 int main(void)
 {
     test_frame_worked_example();
@@ -87,6 +125,7 @@ int main(void)
     test_frame_reserved_bits_stripped();
     test_zone_bits();
     test_rails_decode();
+    test_reassert_is_superset();
     if (g_failures == 0) printf("test_picpwr_frame: all passed\n");
     TEST_RETURN();
 }
