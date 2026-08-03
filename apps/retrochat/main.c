@@ -33,8 +33,33 @@ int main(void) {
 
     proto_init();
     ui_init(proto_self_id());
-    if (!audio_glue_init()) fatal_screen("CODEC FAIL");   // codec + duplex + capture drain + PDM + core 1
+    // The audio codec's rail may be off at boot: request it and wait for
+    // the apply (docs/drivers/power.md). On firmware whose rails are
+    // already on, the first status frame proves it and the wait falls
+    // through; on firmware that sends no status frames there is nothing
+    // to wait for and the app proceeds as before.
     uartkbd_init();
+    picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_AUDIO));
+    {
+        absolute_time_t give_up   = make_timeout_time_ms(10000);
+        absolute_time_t no_frames = make_timeout_time_ms(4000);
+        uint32_t rails;
+        while (!time_reached(give_up)) {
+            uartkbd_task();
+            picpwr_task();
+            if (picpwr_rails(&rails)) {
+                if (rails & picpwr_zone_bit(PICPWR_ZONE_AUDIO)) break;
+            } else if (time_reached(no_frames)) {
+                break;
+            }
+            sleep_ms(25);
+        }
+        DIAG("picpwr: audio codec's rail %s\n",
+             (picpwr_rails(&rails) && (rails & picpwr_zone_bit(PICPWR_ZONE_AUDIO)))
+                 ? "up" : "state unknown");
+    }
+
+    if (!audio_glue_init()) fatal_screen("CODEC FAIL");   // codec + duplex + capture drain + PDM + core 1
     static compose_t s_compose;      // static: keeps main()'s stack tiny
     compose_init(&s_compose);
     {   // the chord label bar is always visible; draw its initial state
@@ -69,6 +94,7 @@ int main(void) {
 
         // Physical chord keyboard.
         uartkbd_task();
+        picpwr_task();
         bool was_composing = compose_active(&s_compose);
         compose_result_t cr = COMPOSE_NONE;
         uartkbd_event_t kev;
