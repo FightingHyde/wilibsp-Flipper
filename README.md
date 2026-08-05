@@ -117,6 +117,7 @@ wilibsp/
     hello_audio/ hello_cc1101/ hello_mics/ hello_sensors/
     hello_ir/                 NEC TX->RX loopback + live decode
     hello_usbdrive/           thumb-drive mount + root listing
+    hello_sdcard/             SD card read/write over OneWili (main CPU owns the card)
   tools/                      fw CLI (fw.py) + POSIX/Windows launchers + its own pytest
   tests/                      standalone host CTest tree (no Pico SDK, no hardware)
   docs/
