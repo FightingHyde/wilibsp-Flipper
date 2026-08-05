@@ -193,14 +193,11 @@ during a walk) if their rail reads off. `picpwr_keep_awake()` +
 
 ## Automatic zone management (default firmware)
 
-The FreeWili 2 default firmware (the `freewili-firmware` repo's `fw2display`
-image) runs a **zone manager on the DISPLAY CPU** on top of the raw protocol
-above: `rpZoneManager` / `rpZonePolicy` / `rpZoneSnapshot` /
-`rpZoneManagerHw` / `rpPowerZonePreflight` (all host-tested in the firmware
-repo's `testprojects/powerzones_test`). A standalone BSP app flashing its own
+The FreeWili 2 default firmware's display image runs a **zone manager on the DISPLAY CPU** on top of the raw protocol
+above: the zone-manager family (all host-tested). A standalone BSP app flashing its own
 DISPLAY firmware owns its own power policy and keeps using `picpwr_*`; a BSP
 app running **against the stock firmware** should expect the manager to be
-moving rails underneath it. Constants named here are `rpZoneManager.h`
+moving rails underneath it. Constants named here are zone-manager
 values in the default firmware — code facts, not hardware-verified in this
 BSP, and they may change. Key facts:
 
@@ -237,19 +234,19 @@ the FwGUI link that BSP apps can use to reach the zone manager. All four
 commands below are `host → display` (MAIN → DISPLAY); the display never
 initiates any of them:
 
-- `0x6B` `FWGUI_API_POWER_TELEMETRY` (2 bytes, `rateMs` u16le) — start/stop
-  the DISPLAY power sampler; replies with `FWGUI_EVENT_POWER_DATA` (47).
-- `0x6C` `FWGUI_API_POWER_ZONE_SET` (2 bytes: `zone` u8 1-based, `on` u8) —
+- `0x6B` power telemetry (2 bytes, `rateMs` u16le) — start/stop
+  the DISPLAY power sampler; replies with event 47 (power data).
+- `0x6C` power-zone set (2 bytes: `zone` u8 1-based, `on` u8) —
   ask the DISPLAY to switch one zone; the handler seeds untouched zones from
   live state so it cannot clobber zones it does not name. The result is
-  observed in the next status frame / `FWGUI_EVENT_POWER_ZONES` (48); a
+  observed in the next status frame / event 48 (power zones); a
   queue-full drop is silent.
-- `0x6D` `FWGUI_API_SET_POWER_ZONES` (4 bytes, `zoneMask` u32le, bits 19:0) —
+- `0x6D` set power zones (4 bytes, `zoneMask` u32le, bits 19:0) —
   whole 20-bit awake mask forwarded to the coprocessor as one PZCONFIG (the
   `picpwr` power-zone frame). Used
   by MAIN's Power Management menu; the Linux-CPU toggle rides this (S17 +
   CM0_RUNPG in one frame so the ascending walk powers the rail first).
-- `0x7F` `FWGUI_API_ZONE_DEMANDS` (1 byte) — MAIN's declared power-zone
+- `0x7F` zone demands (1 byte) — MAIN's declared power-zone
   demands: `0x01` wifi (zone 5), `0x02` BLE (zone 5), `0x04` websocket
   (zone 5, reserved — always 0), `0x08` analog (zone 11), `0x10` CAN
   (zone 15). Sent on change and on a heartbeat of at most 1 s; zone 5's bits

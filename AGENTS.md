@@ -194,7 +194,7 @@ while (true) {
 
 A key qualification for anyone running **against the stock firmware**
 instead of a standalone BSP app: the default DISPLAY image runs an
-**automatic zone manager** (`rpZoneManager` family) that acquires and
+**automatic zone manager** (the zone-manager family) that acquires and
 releases managed zones (1, 3, 4, 5, 8, 10, 11, 13, 14, 15, 16) on its own,
 batched into one PZCONFIG per settle window, with an escape-hatch setting
 that reverts to `EPOWERZONE` refusal. A standalone app that flashes its own
@@ -332,13 +332,11 @@ the probe once and every one-shot verb reuses it.
   what was actually run on the board and what came back. Check here before
   claiming any behavior is confirmed.
 - **Main-CPU control (OneWili over the FwGUI link)**: `libs/onewili/README.md`.
-- **Related default-firmware subsystems** (implemented upstream in the
-  `freewili-firmware` repo, not in this BSP): LoRa WIO-E5 bridge
-  (`docs/drivers/lora.md` here; `agents/firmware/lora.md` there), NFC
-  ST25R3916B (`agents/firmware/nfc.md`), ESP32-C5 Bottlenose
-  (`rpBottleNoseOrca`, MAIN-side), CM0 Linux bridge (`freewilicm0/` +
-  `agents/firmware/cm0-bridge.md`), and the automatic power-zone manager
-  (`docs/drivers/power.md` here).
+- **Related default-firmware subsystems** (implemented upstream in the default
+  FreeWili 2 firmware, not in this BSP): LoRa WIO-E5 bridge
+  (`docs/drivers/lora.md`), NFC ST25R3916B, ESP32-C5 Bottlenose
+  (MAIN-side), CM0 Linux bridge, and the automatic power-zone manager
+  (`docs/drivers/power.md`).
 - **Original hardware description**: `FwDisplayVibe.md` (repo root) — a
   secondary source, useful for the broader peripheral inventory (radio, NFC,
   IR, DVI, audio, mics, buttons, PIO-USB, sensors) not yet in `board.h`, but
