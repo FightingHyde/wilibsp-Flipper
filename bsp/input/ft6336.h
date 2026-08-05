@@ -16,6 +16,14 @@ bool ft6336_init(void);
 // and returns true; returns false when nothing (or more than one point) is touched.
 bool ft6336_poll(uint16_t* x, uint16_t* y);
 
+// Poll for up to TWO touch points (the FT6336U's hardware maximum). Returns
+// the point count 0..2 and fills (x1,y1) — and (x2,y2) when two are down —
+// oriented to the panel like ft6336_poll. NOTE: register slot order follows
+// the chip's touch IDs, so after one of two fingers lifts, the survivor may
+// appear in either slot — callers should track points as a SET, not by slot.
+// An injected point reports as a single touch.
+int ft6336_poll2(uint16_t* x1, uint16_t* y1, uint16_t* x2, uint16_t* y2);
+
 // agentio touch injection. While `down` is set, ft6336_poll() returns the
 // injected point and skips the I2C read entirely, so injection works with no
 // finger (and no touch controller) present. ft6336_inject_reads() counts polls
