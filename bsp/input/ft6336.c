@@ -7,22 +7,31 @@
 #include "hardware/i2c.h"
 #include "platform/diag.h"
 
+/* Bounded transfers: this bus is shared, and a device that loses its
+ * supply or is reset mid-transfer can hold it. */
+#define I2C_XFER_TIMEOUT_US 2000
+
 #define FT6336_I2C             i2c1
 #define FT6336_ADDR            0x38
 #define FT6336_REG_DEVICE_MODE 0x00   // 0 = normal operating mode
 #define FT6336_REG_TD_STATUS   0x02   // low nibble = number of touch points
 #define FT6336_REG_CHIP_ID     0xA3   // chip-id register (presence check)
 
-// Write the register pointer (no stop), then read n bytes.
+// Write the register pointer (no stop), then read n bytes. TIMEOUT reads:
+// this poll runs every UI-loop pass, and an untimed blocking read turned a
+// wedged I2C bus into a permanently hung UI (bench incident 2026-07-29,
+// first real two-finger session — cores alive, UI parked in i2c waits).
+// 2 ms is ~10x a normal 11-byte transaction at 400 kHz.
 static bool ft_rd(uint8_t reg, uint8_t* buf, uint8_t n) {
-    if (i2c_write_blocking(FT6336_I2C, FT6336_ADDR, &reg, 1, true) != 1) return false;
-    return i2c_read_blocking(FT6336_I2C, FT6336_ADDR, buf, n, false) == (int)n;
+
+    if (i2c_write_timeout_us(FT6336_I2C, FT6336_ADDR, &reg, 1, true, I2C_XFER_TIMEOUT_US) != 1) return false;
+    return i2c_read_timeout_us(FT6336_I2C, FT6336_ADDR, buf, n, false, I2C_XFER_TIMEOUT_US) == (int)n;
 }
 
 // Write one register = val.
 static bool ft_wr(uint8_t reg, uint8_t val) {
     uint8_t b[2] = { reg, val };
-    return i2c_write_blocking(FT6336_I2C, FT6336_ADDR, b, 2, false) == 2;
+    return i2c_write_timeout_us(FT6336_I2C, FT6336_ADDR, b, 2, false, I2C_XFER_TIMEOUT_US) == 2;
 }
 
 bool ft6336_init(void) {
