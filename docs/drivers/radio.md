@@ -137,6 +137,29 @@ radio path; `ANT_CC1101_433` (1), `ANT_CC1101_315_415` (2), and
 its three antennas. Call it after `board_init()` (which brings up I2C1 +
 the expander) and before any CC1101 SPI traffic.
 
+The default FreeWili 2 firmware layers a **sub-GHz arbiter**
+(the sub-GHz arbiter) on top of these pins: it owns the antenna mux, the
+CC1101 CS demux, and **GPIO 40** (which the default firmware drives as the
+WIO-E5 LoRa UART TX — see `docs/drivers/lora.md`), and it implements a
+`setSubGhzAntenna` FwGUI RPC. The two selector bits `V1_1` / `V2_1`
+(DISPLAY expander IC50 P1_3 / P1_1, unchanged across board revisions) pick the path; `LoRA_1101_SEL = NOR(V1_1, V2_1)` is also the
+select of the **CC1101 CS demux** — the IC113 mux (`SN74LVC1G3157`) that routes **GPIO 40** to either the shared LCD/CC1101 chip-select
+(`SCREEN_CS1`, CC1101 IC60 pin 7 CSn) or the WIO's PB7
+(`LoRA_PB7`) — so the two radios are mutually exclusive in hardware:
+
+| V1_1 | V2_1 | Path |
+|---|---|---|
+| 0 | 0 | **LoRa** |
+| 1 | 0 | CC1101 Medium (RF1) |
+| 0 | 1 | CC1101 Low (RF2) |
+| 1 | 1 | CC1101 High (RF3) |
+
+Route all selection through `setSubGhzAntenna` — never poke `V1_1`/`V2_1`
+directly. Zone 4 feeds both the CC1101 and the WIO-E5, so arbitration and
+power are coupled: the rail stays up while either radio is in use. See the
+default firmware's LoRa documentation before writing code that touches the
+antenna or GPIO 40.
+
 ## Constraints & gotchas
 
 - **GDO0 capture runs on `pio2`**, not `pio0`/`pio1` (both already
@@ -149,6 +172,8 @@ the expander) and before any CC1101 SPI traffic.
   the driver) rather than driving SPI1 or `PIN_CC1101_CS` directly, and
   never assume MISO (GPIO8) is in SPI RX mode without going through the
   arbiter — it's an LCD DC output the rest of the time.
+- **Bound every pin/register wait** — a dark (unpowered) zone-4 rail makes an
+  unbounded CC1101 wait wedge the core (see `docs/hardware/facts.md`).
 - **No floats over RTT**: all diagnostics in this driver use `DIAG(...)`
   (SEGGER RTT), which supports only `%d %u %x %s %c` — RSSI, frequencies,
   and durations are logged as integers (dBm as `int`, Hz/ticks as

@@ -37,10 +37,33 @@ and exactly what `bsp/fw2.h` includes. (`agentio/*.c`, `platform/*.c`,
 
 | Peripheral | GPIOs / bus (source: `FwDisplayVibe.md` unless noted) | Harvest from |
 |---|---|---|
-| NFC — ST25R3916B | I2C1 (SDA=26/SCL=27) | `subghz`/`sensorview` (check which owns an NFC driver; not confirmed at catalog time) |
+| NFC — ST25R3916B | I2C1 (SDA=26/SCL=27; address in the firmware's NFC driver) | **Implemented upstream** in the default firmware's display core (FwGUI RPC 0x6F–0x71, events 52 `nfcSnapshot` / 53 `nfcText`). See "Implemented upstream" below |
 | DVI / HSTX | DVI_CLK_N/P=12/13, DVI_D0_N/P=14/15, DVI_D1_N/P=16/17, DVI_D2_N/P=18/19 | **DONE** — plain 640x480p60 DVI (`bsp/display/hstx_dvi`) harvested from ../movieplayer; HDMI-audio-island mode not harvested. See docs/drivers/dvi.md |
 | 14-button serial coprocessor | TX=GPIO38, RX=GPIO39 (UART1 @ 62500 8N1, RX-only) | **DONE** — `bsp/input/uartkbd*` frame parser + `bsp/keyboard/fw2kb*` chord engine (harvested from `../wilikeyboard`). See docs/drivers/keyboard.md |
 | Pico-PIO-USB (USB host via PIO) | D+=GPIO42, D-=GPIO43; 1.5K D+ pullup enabled via the I/O expander | `usbcamfw` / `wili8c` |
+
+## Implemented upstream in the default firmware (not yet harvested here)
+
+These peripherals are **not** in `bsp/` (they are not part of
+`freewili2_bsp` — do not add a `DONE` row for them), but they **are** fully
+implemented in the default FreeWili 2 firmware, and
+that repo is the authoritative source when working against the stock
+firmware or planning a harvest:
+
+| Peripheral | Where it lives upstream | Reference |
+|---|---|---|
+| LoRa — WIO-E5 bridge | DISPLAY core: LoRa bridge + FwGUI RPC 0x66–0x6A; bridge fw in a companion WIO repo; pairs with a Meshtastic display-firmware fork | this repo `docs/drivers/lora.md`; the default firmware's LoRa documentation |
+| NFC — ST25R3916B | DISPLAY core: NFC driver, FwGUI RPC 0x6F–0x71, events 52 `nfcSnapshot` / 53 `nfcText`, MIFARE Crypto1 on-device | the default firmware's NFC documentation |
+| Wi-Fi/BLE — ESP32-C5 (Bottlenose) | MAIN core: the ESP32 bridge over the PIO-UART (runtime UART TX 32/34, RX 33/35); no public standalone ESP32 repo — firmware ships as a release asset | the default firmware's PIO-allocation notes (zone 5) |
+| CM0 Linux module (BCM2837) | MAIN/FPGA-side: bridge daemon + OneWili C/Python bindings | the default firmware's CM0-bridge documentation |
+| Automatic power-zone manager | DISPLAY core: zone-manager family; host-tested | this repo `docs/drivers/power.md` |
+
+Harvesting the LoRa bridge or NFC driver into this BSP would follow the
+normal "add a driver" procedure with the default firmware as the source repo.
+The `libs/onewili` submodule pin is bumped alongside this patch to a commit
+containing the regenerated OneWili package (SD-card API + new
+commands/enums/events from the firmware's emitters, incl. the power-zone
+API).
 
 ## Partial / in-repo but not wired up
 

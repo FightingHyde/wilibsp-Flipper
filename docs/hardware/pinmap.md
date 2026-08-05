@@ -18,7 +18,7 @@ against `board.h` again once that peripheral gets a driver, since
 | `PIN_LCD_MOSI` | 11 | SPI1 (LCD TX) | |
 | `PIN_LCD_TE` | 33 | LCD tearing-effect output | Unused by the driver |
 | `PIN_LCD_BL` | 25 | LCD backlight | Plain on/off GPIO (no PWM dimming yet) |
-| `PIN_CC1101_CS` | 40 | CC1101 chip-select | Active low; parked HIGH in `board_init()` before any LCD traffic. **`FwDisplayVibe.md` says GPIO 23 for this signal — that's a second discrepancy; `board.h`/`board.c` (which actively drives GPIO 40 HIGH at boot) is authoritative. See facts.md.** |
+| `PIN_CC1101_CS` | 40 | CC1101 chip-select | Active low; parked HIGH in `board_init()` before any LCD traffic. **`FwDisplayVibe.md` says GPIO 23 for this signal — that's a second discrepancy; `board.h`/`board.c` (which actively drives GPIO 40 HIGH at boot) is authoritative. GPIO 23's real job is the WIO-E5 LoRa UART RX. GPIO 40 is a shared line by design: through the IC113 mux (`SN74LVC1G3157`, S = `LoRA_1101_SEL = NOR(V1_1, V2_1)`) it reaches either `SCREEN_CS1` (shared LCD/CC1101 CSn) or `LoRA_PB7` (WIO UART RX); the default firmware drives it as the WIO UART TX, and the sub-GHz arbiter switches it to the CSn path for CC1101 use. See facts.md + docs/drivers/lora.md + docs/drivers/radio.md.** |
 | `PIN_CC1101_MISO` | 8 | CC1101 MISO | == `PIN_LCD_DC`; an OUTPUT (DC) for the LCD, must mux to SPI1 RX (input) around CC1101 access |
 | `PIN_CC1101_GDO0` | 32 | CC1101 live data / sync | PIO2-sampled edge capture (`gdo_capture`) |
 | `PIN_CC1101_GDO2` | 37 | CC1101 GDO2 | Unused |
@@ -74,7 +74,7 @@ GPIOs of their own, per `FwDisplayVibe.md`:
 
 | Peripheral | I2C address | Driver status |
 |---|---|---|
-| ST25R3916B NFC | (I2C, address not in `FwDisplayVibe.md`) | TODO |
+| ST25R3916B NFC | I2C1 (address in the firmware's `nfc/hardware/st25r3916.h`) | **Implemented upstream** (default firmware, FwGUI RPC 0x6F–0x71) |
 | OPT4001 ambient light | 0x45 (ADDR strapped high) | DONE (`bsp/sensors/opt4001.c`) |
 | SHT40-AD1B-R3 humidity | 0x44 | DONE (`bsp/sensors/sht40.c`) |
 | BMI323 IMU | 0x68 | DONE (`bsp/sensors/bmi323.c`) |
@@ -83,6 +83,18 @@ GPIOs of their own, per `FwDisplayVibe.md`:
 Note: `FwDisplayVibe.md` also lists a USB host hub (CH334F) on the default
 USB port, exposing ports HP1/HP2 with power switched by the IO expander —
 this is board-level context, not a GPIO the BSP drives directly today.
+
+## Default-firmware pins not yet in `board.h`
+
+Driven by the **default** FreeWili 2 firmware's display image (see
+`docs/hardware/catalog.md` "Implemented upstream"). Not yet `#define`d in
+`bsp/platform/board.h` because no BSP driver uses them yet:
+
+| Signal | GPIO | Peripheral | Notes |
+|---|---|---|---|
+| WIO-E5 UART TX | 40 | LoRa bridge (DISPLAY PIO UART @ 115200) | == `PIN_CC1101_CS`; BSP parks it HIGH, default firmware drives it as WIO TX; reaches module PB7 (USART1 RX) via IC113 mux B2 (`LoRA_PB7`) |
+| WIO-E5 UART RX | 23 | LoRa bridge (DISPLAY PIO UART @ 115200) | Net `LoRA_SPI_CS` → module PB6 (USART1 TX); the pin `FwDisplayVibe.md` misreported as the CC1101 CS |
+| ESP32 link | 32–35 | ESP32-C5 Bottlenose PIO-UART (runtime UART: TX 32/34, RX 33/35) | MAIN-side; see pio-allocation in the firmware repo |
 
 ## Cross-reference
 

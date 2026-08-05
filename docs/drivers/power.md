@@ -6,7 +6,9 @@ audio codec rail (zone 3) and the CAN rail (zone 15). The display CPU
 requests rails over the same UART link that carries the coprocessor's
 status/button frames (UART1, 62500 baud, 8N1, both directions). The
 display CPU is the only device that drives the coprocessor's receive
-line; there is no alternate control path.
+line; there is no alternate control path at the UART level. (The default
+firmware adds a FwGUI-level demand channel on top — see "Automatic zone
+management" below.)
 
 BSP support: `bsp/input/uartkbd.*` owns the link (RX parsing and command
 TX); `bsp/input/picpwr_frame.*` is the pure frame/mask logic
@@ -98,16 +100,16 @@ zone 1 is bit 0 of the **last** byte and zone 17 is bit 0 of the first.
 | 1 | Motion/magnetic/humidity/light sensors + an I/O expander | yes | The expander serves more than the sensors — switching off has a wide blast radius |
 | 2 | LCD panel + touch controller | yes | Off = blank screen, no touch |
 | 3 | Audio codec | no | — |
-| 4 | Sub-GHz radio + LoRa module (shared rail) | no | The sub-GHz radio is usable; the LoRa module is held in reset by a reserved control line and is **not** usable through this interface |
-| 5 | Wi-Fi / Bluetooth module | no | — |
+| 4 | Sub-GHz radio + LoRa module (shared rail) | no | Both radios are usable: the CC1101 via this interface, and the WIO-E5 LoRa bridge over the DISPLAY's own PIO UART on the same rail (standby-booted, revived after rail cycles — see docs/drivers/lora.md). The "held in reset, not usable" note was stale as of the default firmware's LoRa support |
+| 5 | Wi-Fi / Bluetooth module | no | Auto-managed in the default firmware on MAIN's declared FwGUI 0x7F demands (persisted wifi/BLE enables, the ESP32 flasher, and each ad-hoc scan's bounded demand window); kept powered by the fail-safe-by-absence rule until MAIN's first declaration |
 | 6 | FPGA + its external memory | no | — |
 | 7 | microSD card + bridge | yes | Unmount before switching off — corruption risk |
 | 8 | USB hub | with USB cable | Managed automatically by the device on cable attach/detach — do not fight it |
 | 9 | *Flag, not a rail*: status-LED enable | set | When set, the device's status LED shows heartbeat/activity and the application CPUs mirror it. Clear for LED-quiet operation. Safe either way; no rail moves |
 | 10 | Addressable RGB LEDs | no | — |
 | 11 | Analog subsystem (DAC, ADC, op-amps) | no | — |
-| 12 | No confirmed load | no | Leave in its default state. Verified not required for the LCD (apps draw with it off) or the video output (signal, sink detection and hotplug all unaffected with it off) |
-| 13 | NFC + low-frequency RFID | no | — |
+| 12 | No confirmed load | no | Leave in its default state; exposed as a **manual setting** in the default firmware — never inferred or auto-released. Verified not required for the LCD (apps draw with it off) or the video output (signal, sink detection and hotplug all unaffected with it off) |
+| 13 | NFC + low-frequency RFID | no | Driven by the default firmware's FwGUI NFC RPC (0x6F–0x71) — see the "Implemented upstream" notes in docs/hardware/catalog.md |
 | 14 | USB-serial bridge | with USB cable | Managed automatically on cable attach/detach |
 | 15 | CAN controller + transceiver | no | — |
 | 16 | On-board debug probe | with USB cable | Off mid-session = you lose your debugger. Managed automatically on cable attach/detach |
@@ -188,6 +190,69 @@ There is no keepalive and no idle timeout. Applications that depend on a
 rail should watch the status frame and re-assert (debounced — never
 during a walk) if their rail reads off. `picpwr_keep_awake()` +
 `picpwr_task()` implement exactly this.
+
+## Automatic zone management (default firmware)
+
+The FreeWili 2 default firmware's display image runs a **zone manager on the DISPLAY CPU** on top of the raw protocol
+above: the zone-manager family (all host-tested). A standalone BSP app flashing its own
+DISPLAY firmware owns its own power policy and keeps using `picpwr_*`; a BSP
+app running **against the stock firmware** should expect the manager to be
+moving rails underneath it. Constants named here are zone-manager
+values in the default firmware — code facts, not hardware-verified in this
+BSP, and they may change. Key facts:
+
+- **Batched emission.** Any change is deferred `RP_ZONE_SETTLE_MS` (750 ms)
+  and two PZCONFIG frames are never closer than `RP_ZONE_FRAME_FLOOR_MS`
+  (3000 ms) — one frame per settle window, never per command. A zone released
+  and re-wanted inside one window matches live state again before the
+  deadline and emits **nothing**.
+- **Declared acquire, inferred release.** Commands declare an
+  `iRequiredZoneMask`; the manager acquires what a command needs (with an
+  `RP_ZONE_ACQUIRE_FLOOR_MS` 1000 ms floor) and releases what nothing needs,
+  via pure per-zone predicates over a snapshot. Requests carry a TTL
+  (`RP_ZONE_REQUEST_TTL_MS` 5000 ms); commanded-but-unconfirmed zones are
+  graced (`RP_ZONE_GRACE_MS` 3000 ms).
+- **Managed zones: 1, 3, 4, 5, 8, 10, 11, 13, 14, 15, 16.** Zones 2, 6, 7,
+  9, 12 and 17 are never moved by the manager (owner rulings: display sleep
+  owns 2, the FPGA rail owns 6, the SD card owns 7, board-LED flag 9 is not
+  a rail, 12 is manual-only, the CM0 17 needs explicit shutdown).
+- **Zones 8, 14 and 16 are VBUS-gated** from the coprocessor's `0xBD`
+  status frame — the one input that depends on no switched rail. The
+  manager drives them off on detach and re-asserts on attach.
+- **Escape hatch.** A setting reverts to the old refuse-with-`EPOWERZONE`
+  behaviour; bench work and bisection rely on it.
+- **Fail-safe by absence.** MAIN's declared demands are treated as all-set
+  until the first declaration arrives and again whenever the newest is older
+  than `RP_ZONE_MAIN_DEMAND_TTL_MS` (5000 ms) — a rebooting or hung MAIN
+  keeps its rails powered.
+
+### The FwGUI power channel (host → DISPLAY, i.e. MAIN → DISPLAY)
+
+The raw coprocessor link is still single-writer (only the DISPLAY drives the
+coprocessor UART), but the default firmware adds a higher-level channel over
+the FwGUI link that BSP apps can use to reach the zone manager. All four
+commands below are `host → display` (MAIN → DISPLAY); the display never
+initiates any of them:
+
+- `0x6B` power telemetry (2 bytes, `rateMs` u16le) — start/stop
+  the DISPLAY power sampler; replies with event 47 (power data).
+- `0x6C` power-zone set (2 bytes: `zone` u8 1-based, `on` u8) —
+  ask the DISPLAY to switch one zone; the handler seeds untouched zones from
+  live state so it cannot clobber zones it does not name. The result is
+  observed in the next status frame / event 48 (power zones); a
+  queue-full drop is silent.
+- `0x6D` set power zones (4 bytes, `zoneMask` u32le, bits 19:0) —
+  whole 20-bit awake mask forwarded to the coprocessor as one PZCONFIG (the
+  `picpwr` power-zone frame). Used
+  by MAIN's Power Management menu; the Linux-CPU toggle rides this (S17 +
+  CM0_RUNPG in one frame so the ascending walk powers the rail first).
+- `0x7F` zone demands (1 byte) — MAIN's declared power-zone
+  demands: `0x01` wifi (zone 5), `0x02` BLE (zone 5), `0x04` websocket
+  (zone 5, reserved — always 0), `0x08` analog (zone 11), `0x10` CAN
+  (zone 15). Sent on change and on a heartbeat of at most 1 s; zone 5's bits
+  come from the persisted wifi/BLE enables, the ESP32 flasher, and each
+  ad-hoc scan's bounded demand window — a scan against a dark ESP32 raises
+  the rail itself and is held pending until the ESP32 answers.
 
 ## Usage guidance
 

@@ -105,6 +105,77 @@ wholesale renumbering.
 **Resolution: GPIO 40 is authoritative** for `PIN_CC1101_CS`. When the CC1101
 driver is eventually harvested (see `docs/hardware/catalog.md`), use
 `board.h`'s `PIN_CC1101_CS` macro rather than hard-coding either number.
+Note: 'authoritative for `PIN_CC1101_CS`' means the pin the macro names —
+which `board_init()` parks HIGH. In the default firmware that same pin is
+the **WIO-E5 UART TX**, not a dedicated CC1101 chip-select output driven
+directly — the CSn is reachable only through the IC113 mux under the
+sub-GHz arbiter (see the GPIO40 section below).
+
+**GPIO 23 is, in fact, the WIO-E5 LoRa UART RX** (display-side PIO UART at
+115200 baud, TX = GPIO 40; see `docs/drivers/lora.md`). Verified against the firmware and the board schematics: the DISPLAY's
+LoRa PIO UART uses GPIO 23 as its RX, and the schematic's
+`LoRA_SPI_CS` net runs from DISPLAY GPIO 23 to the WIO module's PB6 (USART1 TX). The `FwDisplayVibe.md` 'GPIO 23' figure is **consistent
+with** this WIO RX pin — a real signal, just not the CC1101 chip-select.
+
+## GPIO 40: WIO-E5 UART TX, shared with the CC1101 CS via the IC113 mux
+
+`PIN_CC1101_CS = 40` (wilibsp `board.h`) is a **shared line**: the BSP names
+it the CC1101 chip-select and parks it HIGH at boot, and the default
+FreeWili 2 firmware drives the same pin as the **WIO-E5 LoRa bridge's UART
+TX** (display-side PIO UART, 115200 baud; RX = GPIO 23). The board schematics show why both roles are real: GPIO 40's
+only connection beyond the RP2350 pad is the IC113 mux (`SN74LVC1G3157`
+SPDT) — `A` = GPIO 40 via R325, `B1` = `SCREEN_CS1` (shared with the LCD chip-select and
+the **CC1101's CSn, IC60 pin 7**), `B2` = `LoRA_PB7` (the WIO
+module's PB7 UART RX), `S` = `LoRA_1101_SEL = NOR(V1_1, V2_1)` — so the pin
+is a UART TX when the arbiter selects B2 and the CC1101/LCD chip-select
+when it selects B1. The default firmware drives the same pin as the CC1101's CS through the
+IC113 demux ("→ IC113 demux → SCREEN_CS1"), and the sub-GHz arbiter
+owns the mux and sequences the handover (a live UART
+would clock bit patterns onto the chip-select). `board_init()`'s HIGH
+parking is compatible with both roles (UART TX idles high). Any BSP driver
+that would actively toggle GPIO 40 as a CS line must go through the sub-GHz
+arbiter and the antenna mux, exactly as the sub-GHz arbiter does. See
+`docs/drivers/lora.md` and `docs/drivers/radio.md`.
+
+## CC1101: bound every pin/register wait (a dark rail wedges core1)
+
+A CC1101 register/status wait with no timeout can hang forever when the
+rail is dark: the sub-GHz rail (zone 4) is switched, and on a board where
+it is off, polling a CC1101 pin or register never reaches its terminal
+state. The default firmware bounds **every** CC1101 pin/register wait with a
+timeout (a default-firmware hardening commit), so a dark rail costs a
+bounded delay instead of a wedged core. Any harvested CC1101 driver must
+carry the same bound.
+
+## LoRa bridge: standby boot + revive after rail cycles
+
+The WIO-E5 bridge does not assume its rail (zone 4) is up:
+it boots into **standby**, and after a zone-4 rail cycle it is **revived**
+by re-issuing the init sequence (SET_DIO → CONFIGURE → RX_START) once the
+rail returns. A send commanded
+while the rail is still coming up is held until the UART answers. See
+`docs/drivers/lora.md`.
+
+## Display boot order (default firmware)
+
+The default DISPLAY firmware settled a few boot facts worth
+preserving in any display-core port:
+
+- **Black the panel before switching it on**, then show the logo — the
+  backlight/panel-on must not precede a configured panel.
+- **Drive the LCD from the core that owns `spi1`** — cross-core SPI access
+  to the panel wedges it.
+- **Keep MAIN's IO expander configured and off a bus it wedges** during cold boot.
+- The boot path was instrumented to cut ~⅓ off boot time;
+  measure before claiming an ordering change is free.
+
+## I/O expander: verify direction writes
+
+Direction writes to the PCAL6524 can fail to land (bus glitch, expander
+not ready); the default firmware's expander driver **reports whether the direction write actually landed** rather
+than assuming success. `ioexp_init()`-style bring-up should check the write
+result and retry/recover, because a silently-missed direction write leaves
+pins in the wrong direction.
 
 ## No LCD reset GPIO
 
@@ -265,8 +336,14 @@ above) — the 1 kHz tone plays clean on both the onboard speaker and the 3.5 mm
 (±9.2 Hz slip sidebands −17 dB → −44 dB). Full record:
 `docs/superpowers/findings/2026-07-04-i2s-audio-e2e.md`.
 
-Peripherals still marked TODO in `docs/hardware/catalog.md` (NFC, IR, DVI,
-buttons, PIO-USB) remain unverified — their driver harvest is future work.
+Peripherals still marked TODO in `docs/hardware/catalog.md` remain
+unverified — their driver harvest is future work. Note that the **default
+FreeWili 2 firmware** now implements the full
+subsystem set that this BSP tracks as TODO or out-of-scope: the LoRa
+(WIO-E5) bridge, NFC (ST25R3916B), the ESP32-C5 Bottlenose link, the CM0
+Linux module, and the automatic power-zone manager. Where a peripheral is
+implemented upstream, the default firmware is the authoritative reference — see
+`docs/hardware/catalog.md` "Implemented upstream".
 PDM mics are now DONE (see "PDM microphones" below). The four I2C sensors
 (OPT4001, SHT40, BMI323, BMM350) are also now DONE (see "I2C sensors"
 below) — hardware-verified 2026-07-04 via `apps/hello_sensors` (4/4 chip-ids,
