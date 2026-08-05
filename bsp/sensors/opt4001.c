@@ -3,6 +3,10 @@
 #ifdef PICO_BUILD
 #include "hardware/i2c.h"
 #include "platform/diag.h"
+
+/* Bounded transfers: this bus is shared, and a device that loses its
+ * supply or is reset mid-transfer can hold it. */
+#define I2C_XFER_TIMEOUT_US 2000
 #define OPT4001_I2C  i2c1
 #endif
 
@@ -24,18 +28,18 @@ float opt4001_lux(uint8_t exponent, uint32_t mantissa) {
 bool opt4001_init(void) {
     // CONFIG 0x3238: RANGE=auto(12), CONVERSION_TIME=100ms(8), MODE=continuous(3), LATCH=1.
     uint8_t cfg[3] = { OPT4001_REG_CONFIG, 0x32, 0x38 };
-    bool ok = (i2c_write_blocking(OPT4001_I2C, OPT4001_ADDR, cfg, 3, false) == 3);
+    bool ok = (i2c_write_timeout_us(OPT4001_I2C, OPT4001_ADDR, cfg, 3, false, I2C_XFER_TIMEOUT_US) == 3);
     uint8_t reg = OPT4001_REG_DEVID, id[2] = { 0, 0 };
-    if (i2c_write_blocking(OPT4001_I2C, OPT4001_ADDR, &reg, 1, true) == 1)
-        i2c_read_blocking(OPT4001_I2C, OPT4001_ADDR, id, 2, false);
+    if (i2c_write_timeout_us(OPT4001_I2C, OPT4001_ADDR, &reg, 1, true, I2C_XFER_TIMEOUT_US) == 1)
+        i2c_read_timeout_us(OPT4001_I2C, OPT4001_ADDR, id, 2, false, I2C_XFER_TIMEOUT_US);
     DIAG("opt4001: init %s id=0x%02x%02x\n", ok ? "ok" : "NAK", id[0], id[1]);
     return ok;
 }
 
 bool opt4001_read(float *lux) {
     uint8_t reg = OPT4001_REG_RESULT, b[4];
-    if (i2c_write_blocking(OPT4001_I2C, OPT4001_ADDR, &reg, 1, true) != 1) return false;
-    if (i2c_read_blocking(OPT4001_I2C, OPT4001_ADDR, b, 4, false) != 4) return false;
+    if (i2c_write_timeout_us(OPT4001_I2C, OPT4001_ADDR, &reg, 1, true, I2C_XFER_TIMEOUT_US) != 1) return false;
+    if (i2c_read_timeout_us(OPT4001_I2C, OPT4001_ADDR, b, 4, false, I2C_XFER_TIMEOUT_US) != 4) return false;
     // b[0]: EXPONENT[15:12] | RESULT_MSB[11:8]; b[1]: RESULT_MSB[7:0]; b[2]: RESULT_LSB[7:0]
     uint8_t  exponent   = b[0] >> 4;
     uint32_t result_msb = ((uint32_t)(b[0] & 0x0F) << 8) | b[1];   // 12 bits

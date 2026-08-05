@@ -4,6 +4,10 @@
 #include "hardware/i2c.h"
 #include "pico/stdlib.h"
 #include "platform/diag.h"
+
+/* Bounded transfers: this bus is shared, and a device that loses its
+ * supply or is reset mid-transfer can hold it. */
+#define I2C_XFER_TIMEOUT_US 2000
 #define SHT40_I2C  i2c1
 #endif
 
@@ -36,9 +40,9 @@ bool sht40_convert(const uint8_t raw[6], float *temp_c, float *rh_pct, bool *crc
 #ifdef PICO_BUILD
 bool sht40_init(void) {
     uint8_t cmd = SHT40_CMD_SERIAL, sn[6];
-    bool ok = (i2c_write_blocking(SHT40_I2C, SHT40_ADDR, &cmd, 1, false) == 1);
+    bool ok = (i2c_write_timeout_us(SHT40_I2C, SHT40_ADDR, &cmd, 1, false, I2C_XFER_TIMEOUT_US) == 1);
     sleep_ms(2);
-    ok = ok && (i2c_read_blocking(SHT40_I2C, SHT40_ADDR, sn, 6, false) == 6);
+    ok = ok && (i2c_read_timeout_us(SHT40_I2C, SHT40_ADDR, sn, 6, false, I2C_XFER_TIMEOUT_US) == 6);
     DIAG("sht40: init %s\n", ok ? "ok" : "NAK");
     return ok;
 }
@@ -46,10 +50,10 @@ bool sht40_init(void) {
 bool sht40_read(sht40_reading_t *out) {
     out->valid = false;
     uint8_t cmd = SHT40_CMD_MEASURE;
-    if (i2c_write_blocking(SHT40_I2C, SHT40_ADDR, &cmd, 1, false) != 1) return false;
+    if (i2c_write_timeout_us(SHT40_I2C, SHT40_ADDR, &cmd, 1, false, I2C_XFER_TIMEOUT_US) != 1) return false;
     sleep_ms(10);   // high-precision conversion time
     uint8_t raw[6];
-    if (i2c_read_blocking(SHT40_I2C, SHT40_ADDR, raw, 6, false) != 6) return false;
+    if (i2c_read_timeout_us(SHT40_I2C, SHT40_ADDR, raw, 6, false, I2C_XFER_TIMEOUT_US) != 6) return false;
     bool crc;
     sht40_convert(raw, &out->temp_c, &out->rh_pct, &crc);
     out->valid = crc;

@@ -7,6 +7,10 @@
 #include "hardware/i2c.h"
 #include "pico/stdlib.h"
 #include "platform/diag.h"
+
+/* Bounded transfers: this bus is shared, and a device that loses its
+ * supply or is reset mid-transfer can hold it. */
+#define I2C_XFER_TIMEOUT_US 2000
 #define BMM350_I2C   i2c1
 #endif
 
@@ -26,13 +30,13 @@ static bmm350_coeff_t s_coeff;
 
 static bool reg_write(uint8_t reg, uint8_t val) {
     uint8_t b[2] = { reg, val };
-    return i2c_write_blocking(BMM350_I2C, BMM350_ADDR, b, 2, false) == 2;
+    return i2c_write_timeout_us(BMM350_I2C, BMM350_ADDR, b, 2, false, I2C_XFER_TIMEOUT_US) == 2;
 }
 #define BMM350_DUMMY 2   // BMM350 I2C reads return 2 leading dummy bytes (confirmed on HW)
 static bool reg_read(uint8_t reg, uint8_t *out, int n) {
     uint8_t buf[BMM350_DUMMY + 16];
-    if (i2c_write_blocking(BMM350_I2C, BMM350_ADDR, &reg, 1, true) != 1) return false;
-    if (i2c_read_blocking(BMM350_I2C, BMM350_ADDR, buf, n + BMM350_DUMMY, false) != n + BMM350_DUMMY)
+    if (i2c_write_timeout_us(BMM350_I2C, BMM350_ADDR, &reg, 1, true, I2C_XFER_TIMEOUT_US) != 1) return false;
+    if (i2c_read_timeout_us(BMM350_I2C, BMM350_ADDR, buf, n + BMM350_DUMMY, false, I2C_XFER_TIMEOUT_US) != n + BMM350_DUMMY)
         return false;
     for (int i = 0; i < n; i++) out[i] = buf[BMM350_DUMMY + i];
     return true;

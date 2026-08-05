@@ -63,4 +63,23 @@ size_t picpwr_frame_build(uint8_t out[PICPWR_FRAME_LEN],
  * High = rail powered. */
 uint32_t picpwr_rails_decode(const uint8_t payload[20]);
 
+/* Awake mask for re-asserting rails after a kept rail reads off.
+ *
+ * A re-assert MUST be a superset of what was already requested, never a
+ * mask rebuilt from a status snapshot: any zone bit left clear in awake
+ * switches that rail OFF, so echoing a snapshot back switches off every
+ * rail it failed to report (docs/drivers/power.md, "Usage guidance").
+ * ORing the last-sent mask in makes a re-assert incapable of clearing
+ * anything that was previously asked for.
+ *
+ *   cached_awake — awake mask of the last cfg actually sent
+ *   rails        — live rail state from the status frame
+ *   desired      — accumulated picpwr_keep_awake() requests
+ */
+static inline uint32_t picpwr_reassert_awake(uint32_t cached_awake,
+                                            uint32_t rails,
+                                            uint32_t desired) {
+    return (cached_awake | rails | desired) & PICPWR_ZONE_MASK_ALL;
+}
+
 #endif /* PICPWR_FRAME_H */
