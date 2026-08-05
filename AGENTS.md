@@ -126,9 +126,14 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
    `irq_set_exclusive_handler(DMA_IRQ_0, ...)`.
 5. **Shared SPI1 / GPIO8 dual-function.** `PIN_LCD_DC = 8` doubles as
    `PIN_CC1101_MISO`; `PIN_CC1101_CS = 40` is parked HIGH in `board_init()`
-   before any LCD traffic. (The CC1101 radio driver itself is not yet
-   harvested into this repo — see `docs/hardware/catalog.md` — but the pin
-   sharing and parking are already live in `board.c`.)
+   before any LCD traffic. (The CC1101 radio driver is harvested — see
+   `docs/hardware/catalog.md` — and the pin sharing and parking are live in
+   `board.c`.) GPIO 40 is also the
+   **WIO-E5 LoRa UART TX** (and GPIO 23 its UART RX, display-side PIO UART
+   at 115200 baud) in the default firmware — the same line the BSP parks
+   HIGH as the CC1101 CS; the firmware reaches the CC1101's CSn (the shared
+   LCD/`SCREEN_CS1` line) through the IC113 mux, and the sub-GHz arbiter
+   owns the handover. See `docs/drivers/lora.md`.
 6. **LED count = 16.** `FW2_LED_COUNT` / `WS2812_NUM_PIXELS`
    (`bsp/leds/ws2812_driver.h`) = 16, on `pio1` via `PIN_LED_DATA` (GPIO 21).
    `FwDisplayVibe.md` (repo root, the original hardware description) says 7
@@ -186,6 +191,15 @@ while (true) {
     ...
 }
 ```
+
+A key qualification for anyone running **against the stock firmware**
+instead of a standalone BSP app: the default DISPLAY image runs an
+**automatic zone manager** (`rpZoneManager` family) that acquires and
+releases managed zones (1, 3, 4, 5, 8, 10, 11, 13, 14, 15, 16) on its own,
+batched into one PZCONFIG per settle window, with an escape-hatch setting
+that reverts to `EPOWERZONE` refusal. A standalone app that flashes its own
+DISPLAY firmware owns its power policy and uses `picpwr_*` exactly as
+above. See `docs/drivers/power.md` for the full picture.
 
 Rules that cost real bench time:
 
@@ -318,6 +332,13 @@ the probe once and every one-shot verb reuses it.
   what was actually run on the board and what came back. Check here before
   claiming any behavior is confirmed.
 - **Main-CPU control (OneWili over the FwGUI link)**: `libs/onewili/README.md`.
+- **Related default-firmware subsystems** (implemented upstream in the
+  `freewili-firmware` repo, not in this BSP): LoRa WIO-E5 bridge
+  (`docs/drivers/lora.md` here; `agents/firmware/lora.md` there), NFC
+  ST25R3916B (`agents/firmware/nfc.md`), ESP32-C5 Bottlenose
+  (`rpBottleNoseOrca`, MAIN-side), CM0 Linux bridge (`freewilicm0/` +
+  `agents/firmware/cm0-bridge.md`), and the automatic power-zone manager
+  (`docs/drivers/power.md` here).
 - **Original hardware description**: `FwDisplayVibe.md` (repo root) — a
   secondary source, useful for the broader peripheral inventory (radio, NFC,
   IR, DVI, audio, mics, buttons, PIO-USB, sensors) not yet in `board.h`, but

@@ -10,8 +10,10 @@ RGB LEDs, full-duplex I2S audio (NAU88C10), the CC1101 sub-GHz radio, the
 4-mic PDM array, four I2C sensors (OPT4001 light, SHT40 humidity/temp,
 BMI323 IMU, BMM350 magnetometer), IR receive/decode/encode/transmit (with a
 Flipper-`.ir` parser/writer), and a polled native-USB host MSC stack
-(thumb drives, no TinyUSB) with FatFs. Still `TODO`: NFC, DVI/HSTX
-video-out, the 14-button coprocessor, and Pico-PIO-USB. See
+(thumb drives, no TinyUSB) with FatFs. **Implemented upstream in the
+default FreeWili 2 firmware** (not yet harvested into this BSP): the LoRa
+(WIO-E5) bridge and NFC (ST25R3916B), plus the MAIN-side ESP32-C5
+(Bottlenose) link and the CM0 Linux module. Still `TODO` in this BSP (not yet harvested): NFC, LoRa, and Pico-PIO-USB. See
 [`docs/hardware/catalog.md`](./docs/hardware/catalog.md) for the full
 peripheral → driver → provenance table, and `docs/drivers/` for per-driver
 usage docs. Each driver ships with an `apps/hello_*` on-hardware smoke
@@ -119,7 +121,7 @@ wilibsp/
   tests/                      standalone host CTest tree (no Pico SDK, no hardware)
   docs/
     hardware/                 pinmap.md, facts.md, catalog.md
-    drivers/                  per-driver usage docs (platform ... ir, usbhost)
+    drivers/                  per-driver usage docs (platform ... ir, usbhost, lora)
     superpowers/plans/        the full implementation plan / spec
   skills/
     freewili2-new-app/        Claude Code skill: scaffold a new app
@@ -138,7 +140,9 @@ wilibsp/
 - [`docs/hardware/facts.md`](./docs/hardware/facts.md) — hard-won invariants
   and the LED-count discrepancy record.
 - [`docs/hardware/catalog.md`](./docs/hardware/catalog.md) — peripheral →
-  driver status → harvest source.
+  driver status → harvest source (incl. the "Implemented upstream" table).
+- [`docs/drivers/lora.md`](./docs/drivers/lora.md) — WIO-E5 LoRa bridge:
+  implemented in the default firmware, documented for the future harvest.
 - [`docs/superpowers/plans/2026-07-01-freewili2-bsp.md`](./docs/superpowers/plans/2026-07-01-freewili2-bsp.md)
   — the full implementation plan this repo was built from.
 
