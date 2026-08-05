@@ -19,6 +19,14 @@ static usb_device_t hub;
 static uint8_t      n_ports;
 static int          drive_port = -1;    // 1-based; -1 = none
 static bool         active;
+// Per-port consecutive-poll counter of "looks connected", indexed 1..n_ports
+// (index 0 unused). Guards against acting on a single momentary/false
+// PORT_STAT_CONNECTION reading -- an unterminated external USB-A port with
+// nothing plugged in can read back as transiently "connected" from
+// electrical noise, and without this the expensive debounce+reset+enumerate
+// attempt below (~100-600 ms) would re-run on every poll forever.
+#define HUB_CONNECT_CONFIRM_POLLS 3
+static uint8_t      connect_streak[8];
 
 static hcd_result_t hub_set_port_feature(uint8_t port, uint8_t feature) {
     const uint8_t setup[8] = {0x23, 3, feature, 0, port, 0, 0, 0};
@@ -46,6 +54,7 @@ static hcd_result_t hub_get_port_status(uint8_t port, uint16_t *status,
 hcd_result_t usb_hub_attach(const usb_device_t *dev) {
     hub = *dev;
     drive_port = -1;
+    for (size_t i = 0; i < sizeof connect_streak; i++) connect_streak[i] = 0;
 
     // Hub descriptor (class type 0x29): bNbrPorts at offset 2,
     // bPwrOn2PwrGood (2 ms units) at offset 5
@@ -80,52 +89,55 @@ hcd_result_t usb_hub_attach(const usb_device_t *dev) {
     return HCD_OK;
 }
 
-// Scan ports for a connected FS device; reset it; enumerate it at address 2.
+// Scan ports ONCE for a connected FS device; if found, reset it and enumerate
+// it at address 2. Non-blocking when nothing is connected (just a handful of
+// quick control transfers, no sleep_ms). When a device IS connected, runs the
+// bounded (~0.6 s worst case) debounce/reset/recovery sequence for that one
+// device before returning -- that cost is unavoidable and only paid once per
+// real attach, not on every idle poll.
 // Note: after PORT_RESET the downstream device answers at address 0; the hub
 // itself keeps its address, so core_enumerate's address-0 phase is
 // unambiguous. Deliberately no hcd_bus_reset here -- that would reset the
 // hub too; the port reset already reset the device.
-hcd_result_t usb_hub_wait_drive(usb_device_t *drive, uint32_t timeout_ms) {
-    absolute_time_t deadline = make_timeout_time_ms(timeout_ms);
-    while (!time_reached(deadline)) {
-        for (uint8_t p = 1; p <= n_ports; p++) {
-            uint16_t st, chg;
-            if (hub_get_port_status(p, &st, &chg) != HCD_OK) continue;
-            if (chg & PORT_CHG_CONNECTION)
-                hub_clear_port_feature(p, HUB_FEAT_C_PORT_CONNECTION);
-            if (!(st & PORT_STAT_CONNECTION)) continue;
-            if (st & PORT_STAT_LOW_SPEED) continue;    // LS not supported
+bool usb_hub_poll_drive(usb_device_t *drive) {
+    for (uint8_t p = 1; p <= n_ports; p++) {
+        uint16_t st, chg;
+        if (hub_get_port_status(p, &st, &chg) != HCD_OK) continue;
+        if (chg & PORT_CHG_CONNECTION)
+            hub_clear_port_feature(p, HUB_FEAT_C_PORT_CONNECTION);
+        if (!(st & PORT_STAT_CONNECTION)) { connect_streak[p] = 0; continue; }
+        if (st & PORT_STAT_LOW_SPEED) { connect_streak[p] = 0; continue; }    // LS not supported
+        if (++connect_streak[p] < HUB_CONNECT_CONFIRM_POLLS) continue;   // not confirmed yet
+        connect_streak[p] = 0;   // reset regardless of outcome below
 
-            sleep_ms(100);                              // connect debounce
-            if (hub_set_port_feature(p, HUB_FEAT_PORT_RESET) != HCD_OK) continue;
-            // Wait for reset-complete (C_PORT_RESET), max 500 ms
-            absolute_time_t rst_deadline = make_timeout_time_ms(500);
-            bool reset_done = false;
-            while (!time_reached(rst_deadline)) {
-                if (hub_get_port_status(p, &st, &chg) != HCD_OK) break;
-                if (chg & (1u << 4)) {                  // C_PORT_RESET
-                    hub_clear_port_feature(p, HUB_FEAT_C_PORT_RESET);
-                    reset_done = true;
-                    break;
-                }
-                sleep_ms(10);
+        sleep_ms(100);                              // connect debounce
+        if (hub_set_port_feature(p, HUB_FEAT_PORT_RESET) != HCD_OK) continue;
+        // Wait for reset-complete (C_PORT_RESET), max 500 ms
+        absolute_time_t rst_deadline = make_timeout_time_ms(500);
+        bool reset_done = false;
+        while (!time_reached(rst_deadline)) {
+            if (hub_get_port_status(p, &st, &chg) != HCD_OK) break;
+            if (chg & (1u << 4)) {                  // C_PORT_RESET
+                hub_clear_port_feature(p, HUB_FEAT_C_PORT_RESET);
+                reset_done = true;
+                break;
             }
-            if (!reset_done) continue;
-            sleep_ms(20);                               // post-reset recovery
-
-            if (core_enumerate(2, drive) == HCD_OK && drive->cfg.is_msc) {
-                drive_port = p;
-                // Start the hardware-polled status pipe now that no more
-                // EPX control traffic is pending (see note in attach).
-                hcd_int_ep_install(hub.addr, hub.cfg.hub_int_ep,
-                                   hub.cfg.hub_int_mps, hub.cfg.hub_int_interval);
-                active = true;
-                return HCD_OK;
-            }
+            sleep_ms(10);
         }
-        sleep_ms(50);
+        if (!reset_done) continue;
+        sleep_ms(20);                               // post-reset recovery
+
+        if (core_enumerate(2, drive) == HCD_OK && drive->cfg.is_msc) {
+            drive_port = p;
+            // Start the hardware-polled status pipe now that no more
+            // EPX control traffic is pending (see note in attach).
+            hcd_int_ep_install(hub.addr, hub.cfg.hub_int_ep,
+                               hub.cfg.hub_int_mps, hub.cfg.hub_int_interval);
+            active = true;
+            return true;
+        }
     }
-    return HCD_ERR_TIMEOUT;
+    return false;
 }
 
 // Called from usb_msc_task() while READY: consume hub status-change reports
