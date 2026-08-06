@@ -57,6 +57,7 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
+| `fw install-app <uf2>` | Find MAIN with fwFinder, mount its SD reader on the PC, copy the UF2 to `/apps/`, safely unmount, and return the SD to MAIN       |
 | `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel (verified on hardware 2026-07-26) |
 | `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold) |
 | `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch)              |
@@ -65,6 +66,19 @@ Windows one — both just call `python tools/fw.py "$@"`).
 Add `--print` to `build`/`flash`/`rtt`/`test` to print the underlying
 command(s) instead of running them (useful for an agent to inspect what would
 run without touching hardware).
+
+Apps should put app-owned maps, logs, preferences, and similar data under
+`/appdata/<app-name>/` by default. This keeps the SD root tidy and makes file
+ownership obvious; it is a convenience convention, not a hard rule. User
+needs win when a root-level or otherwise shared path is appropriate. See
+`docs/app-storage.md`.
+
+`/apps/` is a non-destructive DISPLAY launch surface. App UF2s may target only
+SRAM (`0x20000000..0x20070000`) or PSRAM (`0x11000000..0x11800000`), never
+QSPI flash (`0x10000000..0x11000000`). `fw install-app` checks every block and
+fails before mounting the SD if the file is malformed, mixed-target, or touches
+flash. The DISPLAY recovery loader is fused in OTP; a write at flash base
+replaces the stock DISPLAY firmware, not the loader.
 
 After `fw new-app <name>` you must add
 `add_subdirectory(apps/<name>)` to the top-level `CMakeLists.txt` yourself —
@@ -167,6 +181,16 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
     `ioexp_vref_get()` reports the current selection. Verified on hardware
     2026-07-26, caveats included:
     `docs/superpowers/findings/2026-07-26-gpio-vref-e2e.md`.
+
+12. **PSRAM apps need an SRAM bootstrap, not BOOTRAM.** A loadable app that
+    executes from `0x11000000..0x11800000` inherits live QMI/PSRAM setup from
+    the DISPLAY loader. Its C/C++ runtime entry and every clock/QMI-sensitive
+    boot routine must execute from SRAM; do not rerun cold-boot PSRAM setup or
+    reset the bus carrying the executing image. Keep the vector table first in
+    PSRAM, with its initial stack in SRAM, then transfer into the SRAM bootstrap.
+    RP2350 BOOTRAM is ROM-owned special memory and is not the app bootstrap
+    region. Verify symbol addresses plus every UF2 target block, then verify an
+    observable runtime milestone on hardware. See `docs/app-storage.md`.
 
 ## Peripheral power zones — request rails BEFORE touching hardware
 
@@ -365,6 +389,29 @@ code written from scratch in this repo, not to harvested drivers.
 - **Diagnostics via `DIAG()`** — never `printf`, never USB/UART stdio.
 - `build/`, `build-tests/`, `*.uf2`, `*.elf`, `*.bin`, `__pycache__/`,
   `.venv/` are git-ignored — don't commit them.
+
+## Public documentation boundary
+
+This repository is public and customer-facing. Documentation must stand on
+its own using observable behavior, public APIs, and public hardware names.
+Never cite a private repository, local source checkout, private source path,
+internal class or symbol, or private commit history. Translate upstream
+implementation findings into product facts; keep only the evidence that can
+be independently understood from this repository.
+
+When importing or refreshing information from the stock firmware:
+
+1. Run `git fetch --prune` and report whether this branch is behind before
+   calling the BSP current. Do not pull across unrelated local changes.
+2. Update the relevant public driver or hardware page, not an internal-source
+   breadcrumb.
+3. Run `python tools/check_public_docs.py` and `git diff --check`.
+4. Preserve honest verification language: a behavior without a local findings
+   record is expected or documented, not hardware-verified by this BSP.
+
+`tools/check_public_docs.py` scans the Markdown shipped in this repository for
+private upstream repository and path references. Add a regression pattern when
+a new kind of private breadcrumb is discovered.
 
 ## Gotchas for automated edits
 

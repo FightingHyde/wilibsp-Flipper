@@ -8,6 +8,7 @@ Commands:
   fw rtt             stream SEGGER RTT diagnostics
   fw test            build+run host unit tests (CTest, no hardware)
   fw new-app <name>  scaffold apps/<name> from apps/template
+  fw install-app UF2 copy an app to the device SD card's /apps directory
 Add --print to any build/flash/test command to print the command(s) instead of running.
 """
 import argparse, os, pathlib, shutil, socket, stat, struct, subprocess, sys, time, zlib
@@ -27,6 +28,210 @@ SURFACES = {"lcd": 0, "dvi": 1}
 # Button indices must match uartkbd_btn_t in bsp/input/uartkbd_parse.h.
 BUTTONS = ["grey", "yellow", "green", "blue", "red", "nav_center", "nav_up",
            "nav_down", "nav_left", "nav_right", "home", "ok", "cancel", "page"]
+
+SD_HOST_COMMAND = r"h\x\k"
+UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
+
+def check_app_uf2(path):
+    """Fail closed unless every UF2 payload targets DISPLAY SRAM or PSRAM."""
+    data = pathlib.Path(path).read_bytes()
+    if not data or len(data) % 512:
+        raise ValueError("app UF2 must contain complete 512-byte blocks")
+    target = None
+    count = 0
+    declared_blocks = None
+    seen_blocks = set()
+    for index in range(len(data) // 512):
+        block = data[index * 512:(index + 1) * 512]
+        m0, m1, flags, address, size, block_no, num_blocks, _family = struct.unpack_from("<8I", block)
+        end, = struct.unpack_from("<I", block, 508)
+        if (m0, m1, end) != UF2_MAGIC:
+            raise ValueError(f"UF2 block {index} has invalid magic")
+        if num_blocks == 0 or block_no >= num_blocks:
+            raise ValueError(f"UF2 block {index} has invalid block numbering")
+        if declared_blocks is None:
+            declared_blocks = num_blocks
+        elif num_blocks != declared_blocks:
+            raise ValueError(f"UF2 block {index} has inconsistent total block count")
+        if block_no in seen_blocks:
+            raise ValueError(f"UF2 block {index} duplicates block number {block_no}")
+        seen_blocks.add(block_no)
+        if flags & 1 or size == 0:
+            continue
+        if 0x10000000 <= address < 0x11000000:
+            raise ValueError(f"UF2 block {index} targets QSPI flash at 0x{address:08x}")
+        windows = (("SRAM", 0x20000000, 0x20070000),
+                   ("PSRAM", 0x11000000, 0x11800000))
+        here = next((name for name, start, stop in windows
+                     if size <= 476 and start <= address and address + size <= stop), None)
+        if here is None or (target is not None and here != target):
+            raise ValueError(f"UF2 block {index} is outside or mixes app-memory windows")
+        target = here
+        count += 1
+    if not count:
+        raise ValueError("UF2 has no loadable app payload")
+    if len(seen_blocks) != declared_blocks or seen_blocks != set(range(declared_blocks)):
+        raise ValueError("UF2 is incomplete: declared block set is not present")
+    return target
+
+def _fwfinder_main_port(serial_number=None):
+    """Return MAIN's serial port using pyfwfinder (loaded only for this command)."""
+    try:
+        import pyfwfinder
+    except ImportError as exc:
+        raise RuntimeError("install pyfwfinder before using 'fw install-app'") from exc
+    devices = pyfwfinder.find_all()
+    if serial_number:
+        devices = [d for d in devices if str(getattr(d, "serial", "")) == serial_number]
+    if not devices:
+        suffix = f" with serial {serial_number!r}" if serial_number else ""
+        raise RuntimeError("no FreeWili device found" + suffix)
+    if len(devices) != 1:
+        raise RuntimeError(f"{len(devices)} FreeWili devices found; pass --device SERIAL")
+    ports = [u for u in devices[0].usb_devices
+             if "serial" in str(getattr(u, "kind", "")).lower()]
+    if not ports:
+        raise RuntimeError("fwFinder found the device but not its serial interface")
+    port = next((u for u in ports if "main" in str(getattr(u, "name", "")).lower()), ports[0])
+    for attr in ("port", "path", "port_name", "location"):
+        if getattr(port, attr, None):
+            return str(getattr(port, attr))
+    raise RuntimeError("fwFinder did not report a path for MAIN's serial interface")
+
+def _set_sd_host(port, to_pc, timeout=8):
+    """Select MAIN (0) or the PC USB reader (1), checking the framed reply."""
+    try:
+        import serial
+    except ImportError as exc:
+        raise RuntimeError("install pyserial before using 'fw install-app'") from exc
+    command = f"{SD_HOST_COMMAND} {1 if to_pc else 0}"
+    deadline = time.monotonic() + timeout
+    with serial.Serial(port, 1_000_000, timeout=0.2) as wire:
+        wire.reset_input_buffer()
+        wire.write(b"\x02" + command.encode("ascii") + b"\n")
+        while time.monotonic() < deadline:
+            line = wire.readline().decode("utf-8", "replace").strip()
+            if not line.startswith("[" + SD_HOST_COMMAND + " "):
+                continue
+            if line.endswith(" 1]"):
+                wire.write(b"\x02")       # leave firmware navigation at the root
+                return
+            raise RuntimeError(f"device rejected {command!r}: {line}")
+    raise RuntimeError(f"timeout waiting for MAIN to acknowledge {command!r}")
+
+def _mounted_volumes():
+    """Mounted removable-volume roots. Kept small and dependency-free."""
+    if sys.platform == "win32":
+        import ctypes
+        mask = ctypes.windll.kernel32.GetLogicalDrives()
+        mounted = set()
+        for i in range(26):
+            root = pathlib.Path(f"{chr(65 + i)}:/")
+            if not (mask & (1 << i)) or ctypes.windll.kernel32.GetDriveTypeW(f"{chr(65 + i)}:\\") != 2:
+                continue
+            try:
+                next(root.iterdir(), None)  # excludes a reader whose media is absent
+                mounted.add(root)
+            except OSError:
+                pass
+        return mounted
+    if sys.platform == "darwin":
+        root = pathlib.Path("/Volumes")
+        return set(root.iterdir()) if root.is_dir() else set()
+    mounts = set()
+    try:
+        for line in pathlib.Path("/proc/mounts").read_text().splitlines():
+            _dev, mount, *_rest = line.split()
+            if mount.startswith(("/media/", "/run/media/")):
+                mounts.add(pathlib.Path(mount.replace("\\040", " ")))
+    except OSError:
+        pass
+    return mounts
+
+def _wait_for_sd(baseline, timeout=25, poll=0.25):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        added = _mounted_volumes() - set(baseline)
+        if len(added) == 1:
+            return added.pop()
+        if len(added) > 1:
+            raise RuntimeError("more than one removable volume appeared; cannot safely choose the SD card")
+        time.sleep(poll)
+    raise RuntimeError("timed out waiting for the SD card USB reader to enumerate")
+
+def _eject_volume(volume):
+    volume = pathlib.Path(volume)
+    if sys.platform == "win32":
+        # Do not use `mountvol /p`: it marks a permanently attached USB card
+        # reader offline, and changing the reader's media ownership does not
+        # necessarily create the PnP reconnect Windows needs to bring it back.
+        drive = str(volume).rstrip("\\/")
+        script = ("$item=(New-Object -ComObject Shell.Application)"
+                  f".Namespace(17).ParseName('{drive}');"
+                  "if($null -eq $item){exit 1};$item.InvokeVerb('Eject')")
+        subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True)
+        deadline = time.monotonic() + 10
+        while volume in _mounted_volumes() and time.monotonic() < deadline:
+            time.sleep(0.2)
+        if volume in _mounted_volumes():
+            raise RuntimeError(f"Windows did not safely remove {volume}")
+    elif sys.platform == "darwin":
+        subprocess.run(["diskutil", "unmount", str(volume)], check=True)
+    else:
+        subprocess.run(["udisksctl", "unmount", "-b",
+                        subprocess.check_output(["findmnt", "-n", "-o", "SOURCE", str(volume)], text=True).strip()],
+                       check=True)
+
+def install_app(uf2, serial_number=None, timeout=25, port=None):
+    """Hand the SD to the PC, atomically copy UF2 into /apps, eject, hand it back."""
+    source = pathlib.Path(uf2).resolve()
+    if source.suffix.lower() != ".uf2" or not source.is_file():
+        raise ValueError(f"expected an existing .uf2 file, got {uf2!r}")
+    target = check_app_uf2(source)
+    print(f"verified {target} app: no QSPI-flash payloads")
+    port = port or _fwfinder_main_port(serial_number)
+    baseline = _mounted_volumes()
+    pc_selected = False
+    volume = None
+    unmounted = False
+    try:
+        _set_sd_host(port, True)
+        pc_selected = True
+        volume = _wait_for_sd(baseline, timeout)
+        apps = volume / "apps"
+        apps.mkdir(exist_ok=True)
+        temporary = apps / (source.name + ".tmp")
+        shutil.copyfile(source, temporary)
+        # Windows' CRT rejects fsync() on a read-only descriptor. Open for
+        # update without changing the already-copied contents.
+        with temporary.open("r+b") as copied:
+            os.fsync(copied.fileno())
+        destination = apps / source.name
+        os.replace(temporary, destination)
+        _eject_volume(volume)
+        unmounted = True
+    except BaseException as primary:
+        # Once a filesystem has mounted, never move the mux while it may still
+        # be live or dirty. Try one cleanup eject after copy/fsync/replace (or
+        # after an initial eject failure), and return ownership only when that
+        # succeeds. Otherwise leave the card with the PC: recoverable and much
+        # safer than corrupting it under a mounted host filesystem.
+        if volume is not None and not unmounted:
+            try:
+                _eject_volume(volume)
+                unmounted = True
+            except BaseException as cleanup:
+                raise RuntimeError(
+                    f"app install failed and {volume} could not be safely unmounted; "
+                    "SD remains assigned to the PC. Close open files, safely eject "
+                    "the volume, then return the SD to MAIN"
+                ) from primary
+        if pc_selected and unmounted:
+            _set_sd_host(port, False)
+        raise
+    else:
+        _set_sd_host(port, False)
+        print(f"installed {source.name} to {destination}")
 
 def packbits_decode(data, units):
     """Decode PackBits-16 (see bsp/agentio/agentio_proto.h) into a list of
@@ -430,6 +635,12 @@ def main(argv=None):
                     help="capture for N seconds then exit (0 = until Ctrl+C)")
     sp = sub.add_parser("test"); sp.add_argument("--print", dest="show", action="store_true")
     sp = sub.add_parser("new-app"); sp.add_argument("name")
+    sp = sub.add_parser("install-app")
+    sp.add_argument("uf2", help="app UF2 to copy into /apps on the device SD card")
+    sp.add_argument("--device", help="fwFinder device serial (required when multiple devices are connected)")
+    sp.add_argument("--port", help="explicit MAIN serial port if fwFinder cannot identify legacy hardware")
+    sp.add_argument("--timeout", type=float, default=25,
+                    help="seconds to wait for the USB SD reader (default: 25)")
 
     sp = sub.add_parser("screenshot")
     sp.add_argument("-o", "--out", default="screenshot.png")
@@ -468,6 +679,8 @@ def main(argv=None):
     elif a.cmd == "test":  _run(test_command(), a.show)
     elif a.cmd == "new-app":
         print("created", new_app(a.name))
+    elif a.cmd == "install-app":
+        install_app(a.uf2, a.device, a.timeout, a.port)
     elif a.cmd == "screenshot":
         crop = tuple(int(v) for v in a.crop.split(",")) if a.crop else None
         if crop is not None and len(crop) != 4:

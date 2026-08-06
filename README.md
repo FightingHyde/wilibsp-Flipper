@@ -41,6 +41,7 @@ falls back to the newest version installed under `~/.pico-sdk`.
 fw build            # configure + build apps/hello_display for the RP2350B target
 fw flash            # program it over the debug probe (OpenOCD)
 fw rtt              # stream live SEGGER RTT diagnostics
+fw install-app app.uf2  # copy a loadable app to SD:/apps and return the card to MAIN
 ```
 
 (`tools/fw` is the POSIX launcher, `tools/fw.cmd` the Windows one; both just
@@ -143,6 +144,8 @@ wilibsp/
   driver status → harvest source (incl. the "Implemented upstream" table).
 - [`docs/drivers/lora.md`](./docs/drivers/lora.md) — WIO-E5 LoRa bridge:
   implemented in the default firmware, documented for the future harvest.
+- [`docs/app-storage.md`](./docs/app-storage.md) — `/apps/` installation and
+  the recommended `/appdata/<app-name>/` convention for app-owned data.
 - [`docs/superpowers/plans/2026-07-01-freewili2-bsp.md`](./docs/superpowers/plans/2026-07-01-freewili2-bsp.md)
   — the full implementation plan this repo was built from.
 

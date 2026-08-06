@@ -15,7 +15,7 @@ bridge). Nothing connected to the GPIO header.
 
 The BSP had no VREF control at all. The reference implementation is
 `fw2IOExpanderDisplay::setVREFConnection(fw2VREFConnection)` in the stock
-firmware (`C:\~prj\fwt10\freewilimain\rmpLib\fw2IOExpanderDisplay.cpp:60`): it
+firmware: it
 clears all four VREF pins and asserts at most one. Pin indices come from the
 `fw2IOExDisplayIOpin` enum in the matching header (index = expander bit, byte =
 index/8), which agrees with `sensorview/src/platform/ioexp_pcal6524.h` for every
