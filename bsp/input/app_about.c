@@ -58,6 +58,9 @@ void fw2_app_about_task(void) {
                                           FRAME_MAX_AGE_MS);
     uint32_t now = (uint32_t)(time_us_64() / 1000u);
     if (!down) {
+        if (s_shown) {
+            st7796_set_write_suppressed(false);
+        }
         if (s_shown && s_restore)
             s_restore();
         s_tracking = false;
@@ -81,4 +84,6 @@ void fw2_app_about_task(void) {
     const fw2app_uf2_info_t *info =
         (const fw2app_uf2_info_t *)fw2app_uf2_info;
     s_renderer(info->name, info->app_version, fw2app_repository_url);
+    if (s_restore == lcd_restore)
+        st7796_set_write_suppressed(true);
 }

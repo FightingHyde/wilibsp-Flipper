@@ -180,3 +180,15 @@ def test_about_release_restores_the_registered_surface():
     assert "s_restore();" in released
     assert "memcpy(s_lcd_backup" in about
     assert "st7796_blit_rect(" in about
+
+
+def test_lcd_about_is_modal_without_blocking_the_app_loop():
+    about = (ROOT / "bsp/input/app_about.c").read_text(encoding="utf-8")
+    display = (ROOT / "bsp/display/st7796.c").read_text(encoding="utf-8")
+    assert "st7796_set_write_suppressed(true)" in about
+    assert "st7796_set_write_suppressed(false)" in about
+    for function in ("st7796_fill_screen", "st7796_fill_rect",
+                     "st7796_blit_rect", "st7796_draw_text",
+                     "st7796_flush_async"):
+        body = display[display.index("void " + function):]
+        assert "s_write_suppressed" in body[:500]

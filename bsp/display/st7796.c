@@ -31,6 +31,7 @@
 static volatile int                  flush_dma_chan  = -1;
 static volatile st7796_flush_done_cb flush_done_cb   = 0;
 static volatile bool                 flush_in_flight = false;
+static bool                          s_write_suppressed;
 static void st7796_dma_irq(void); // forward declaration
 
 // Command byte (DC=0) then optional params (DC=1), framed by CS, over hardware SPI.
@@ -122,6 +123,7 @@ void st7796_init(void) {
 }
 
 void st7796_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
+    if (s_write_suppressed) return;
     cmd(0x2A, (const uint8_t[]){x0 >> 8, x0, x1 >> 8, x1}, 4);
     cmd(0x2B, (const uint8_t[]){y0 >> 8, y0, y1 >> 8, y1}, 4);
     agentio_shadow_note_window(x0, y0, x1, y1);
@@ -180,6 +182,7 @@ static void push_pixels(const uint8_t *bytes, size_t n) {
 }
 
 void st7796_fill_screen(uint16_t color_be) {
+    if (s_write_suppressed) return;
     static uint16_t line[ST7796_W];
     for (int x = 0; x < ST7796_W; x++) line[x] = color_be;
     st7796_set_window(0, 0, ST7796_W - 1, ST7796_H - 1);
@@ -192,6 +195,7 @@ void st7796_fill_screen(uint16_t color_be) {
 }
 
 void st7796_fill_rect(int x, int y, int w, int h, uint16_t color_be) {
+    if (s_write_suppressed) return;
     if (x < 0) { w += x; x = 0; }            // clip to the panel
     if (y < 0) { h += y; y = 0; }
     if (x + w > ST7796_W) w = ST7796_W - x;
@@ -210,6 +214,7 @@ void st7796_fill_rect(int x, int y, int w, int h, uint16_t color_be) {
 
 void st7796_blit_rect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
                       const uint16_t *pixels_be) {
+    if (s_write_suppressed) return;
     uint32_t n = (uint32_t)(x1 - x0 + 1) * (uint32_t)(y1 - y0 + 1);
     st7796_set_window(x0, y0, x1, y1);
     push_pixels((const uint8_t *)pixels_be, (size_t)n * 2);
@@ -217,6 +222,7 @@ void st7796_blit_rect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
 
 void st7796_draw_text(int x, int y, int scale, uint16_t fg_be, uint16_t bg_be,
                       const char *s) {
+    if (s_write_suppressed) return;
     if (scale < 1) scale = 1;
     if (scale > 4) scale = 4;
     static uint16_t glyph[6 * 8 * 4 * 4];     // max cell at scale 4
@@ -259,8 +265,16 @@ bool st7796_flush_busy(void) {
     return flush_in_flight;
 }
 
+void st7796_set_write_suppressed(bool suppressed) {
+    s_write_suppressed = suppressed;
+}
+
 void st7796_flush_async(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
                         const uint16_t *pixels, st7796_flush_done_cb done) {
+    if (s_write_suppressed) {
+        if (done) done();
+        return;
+    }
     flush_done_cb = done;
     st7796_set_window(x0, y0, x1, y1);            // CASET/RASET (blocking, small)
     // Open RAMWR data session (CS low, RAMWR, DC high) — reuse push_begin().
