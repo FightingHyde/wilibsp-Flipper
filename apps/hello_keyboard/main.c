@@ -204,11 +204,12 @@ int main(void)
         }
     }
     st7796_init();
-    board_backlight_set(1);
     ft6336_init();
     fw2kb_init(&s_kb);
     agentio_init();
     agentio_bind_keyboard(&s_kb);
+    st7796_fill_screen(COL_BLACK);
+    board_backlight_set(1);
     fw2kb_set_touch_threshold(&s_kb, TOUCH_SPLIT);
     DIAG("hello_keyboard up\n");
 

@@ -29,6 +29,7 @@ int main(void) {
     board_init();                 // 250 MHz, clk_peri re-source, I2C1, ioexp
     fw2_app_recovery_init();
     st7796_init();
+    st7796_fill_screen(0x0000);
     board_backlight_set(1);
     DIAG("\n=== retrochat boot ===\n");
 

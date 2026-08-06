@@ -3,5 +3,5 @@
 add_executable(template main.c)
 target_link_libraries(template freewili2_bsp)
 fw2_display_app(template
-    VERSION 001
+    VERSION 002
     DESCRIPTION "Minimal starting point for a FreeWili 2 RAM application")

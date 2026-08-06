@@ -32,7 +32,6 @@ int main(void)
     }
     st7796_init();
     ft6336_init();
-    board_backlight_set(1);
 
     // agentio_init() zeroes the shadow framebuffer, so it must run before
     // anything we want a capture to see is drawn — otherwise the pattern
@@ -42,6 +41,12 @@ int main(void)
     fw2kb_init(&kb);
     agentio_init();
     agentio_bind_keyboard(&kb);
+
+    // A loadable app inherits the panel's pixels from the previous firmware.
+    // Establish a deterministic physical and AgentIO-shadow background before
+    // drawing the deliberately partial test pattern below.
+    st7796_fill_screen(BE(0x0000));
+    board_backlight_set(1);
 
     const int n = (int)(sizeof k_bars / sizeof k_bars[0]);
     const int bar_w = ST7796_W / n;

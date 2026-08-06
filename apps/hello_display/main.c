@@ -9,6 +9,7 @@ int main(void) {
     board_init();
     fw2_app_recovery_init();
     st7796_init();
+    st7796_fill_screen(0x0000);
     board_backlight_set(1);
 
     ws2812_init(pio1, 0, PIN_LED_DATA);
@@ -19,7 +20,6 @@ int main(void) {
 
     ft6336_init();
 
-    st7796_fill_screen(0x0000);
     st7796_draw_text(8, 8, 2, 0xFFFF, 0x0000, "TOUCH THE SCREEN");
     DIAG("hello_display up: sys=%u kHz\n", BOARD_SYS_CLOCK_KHZ);
 

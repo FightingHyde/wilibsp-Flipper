@@ -252,6 +252,15 @@ The wrapper proves that metadata was declared and survived the linker. It
 cannot prove `fw2_app_recovery_task()` is reached on every runtime path;
 review and hardware verification must cover that part.
 
+**4. LCD apps establish the whole surface before enabling the backlight.**
+
+A loadable app inherits the panel RAM left by the previous firmware. After
+`st7796_init()`, clear or fully render all `480x320` pixels before calling
+`board_backlight_set(1)` or making partial draws. The normal pattern is
+`st7796_fill_screen(background)`. If AgentIO capture is enabled, call
+`agentio_init()` first so the clear also initializes its shadow framebuffer.
+Headless and DVI-only apps are unaffected.
+
 ## Peripheral power zones — request rails BEFORE touching hardware
 
 The board's power sequencer boots with most peripheral rails **OFF**

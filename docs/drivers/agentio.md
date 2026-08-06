@@ -73,6 +73,7 @@ int main(void)
     fw2kb_init(&kb);
     agentio_init();
     agentio_bind_keyboard(&kb);
+    st7796_fill_screen(BE(0x0000));
 
     const int n = (int)(sizeof k_bars / sizeof k_bars[0]);
     const int bar_w = ST7796_W / n;

@@ -107,3 +107,17 @@ def test_onewili_apps_wrap_synchronous_transports():
         if first_sd >= 0 and (wrap_sd < 0 or wrap_sd > first_sd):
             offenders.append(str(source_path.relative_to(APPS)) + " (SD)")
     assert not offenders, "OneWili calls can starve HOME recovery: " + ", ".join(offenders)
+
+
+def test_lcd_apps_establish_surface_before_backlight():
+    offenders = []
+    for source_path in APPS.glob("*/*.c"):
+        source = source_path.read_text(encoding="utf-8")
+        init_at = source.find("st7796_init()")
+        if init_at < 0:
+            continue
+        clear_at = source.find("st7796_fill_screen(", init_at)
+        light_at = source.find("board_backlight_set(1)", init_at)
+        if clear_at < 0 or light_at < 0 or clear_at > light_at:
+            offenders.append(str(source_path.relative_to(APPS)))
+    assert not offenders, "LCD apps expose inherited panel pixels: " + ", ".join(offenders)
