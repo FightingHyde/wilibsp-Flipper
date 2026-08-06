@@ -28,6 +28,7 @@ static void vu_draw(uint16_t peak) {
 
 int main(void) {
     board_init();   // 250 MHz + vreg + clk_peri re-source; also ioexp_init + I2C1
+    fw2_app_recovery_init();
     DIAG("\n=== hello_audio: full-duplex boot ===\n");
 
     st7796_init();
@@ -42,14 +43,13 @@ int main(void) {
     // on, the first status frame proves it and the wait falls through;
     // on firmware that sends no status frames there is nothing to wait
     // for and the app proceeds as before.
-    uartkbd_init();
     picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_AUDIO));
     {
         absolute_time_t give_up   = make_timeout_time_ms(10000);
         absolute_time_t no_frames = make_timeout_time_ms(4000);
         uint32_t rails;
         while (!time_reached(give_up)) {
-            uartkbd_task();
+            fw2_app_recovery_task();
             picpwr_task();
             if (picpwr_rails(&rails)) {
                 if (rails & picpwr_zone_bit(PICPWR_ZONE_AUDIO)) break;
@@ -99,7 +99,7 @@ int main(void) {
     absolute_time_t t_state = get_absolute_time();
     uint32_t blk = 0;
     for (;;) {
-        uartkbd_task();
+        fw2_app_recovery_task();
         picpwr_task();
         int64_t held = absolute_time_diff_us(t_state, get_absolute_time());
         if (state == ST_SILENCE && held > 3000000) {

@@ -11,6 +11,7 @@
 
 int main(void) {
     board_init();
+    fw2_app_recovery_init();
     DIAG("hello_ir: up\n");
     ir_capture_init();               // powers the IR rail (PCAL6524 P2_0)
     sleep_ms(5);                     // rail settle: no display bring-up here
@@ -25,6 +26,7 @@ int main(void) {
     absolute_time_t next_tx = make_timeout_time_ms(1000);
 
     while (true) {
+        fw2_app_recovery_task();
         if (time_reached(next_tx) && !ir_tx_busy()) {
             const ir_message_t out = {IR_PROTO_NEC, 0x04, 0x08, false};
             uint32_t n = ir_encode(&out, durs, IR_MAX_TIMINGS);

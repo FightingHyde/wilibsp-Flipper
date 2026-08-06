@@ -29,10 +29,12 @@ static void count_ir_files(void) {
 
 int main(void) {
     board_init();
+    fw2_app_recovery_init();
     DIAG("hello_usbdrive: up\n");
     usb_store_init();                 // ioexp_usb_pwr(true) + host stack init
     bool was_mounted = false;
     while (true) {
+        fw2_app_recovery_task();
         usb_store_task();
         bool m = usb_store_mounted();
         if (m != was_mounted) {

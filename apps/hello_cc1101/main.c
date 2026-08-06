@@ -13,6 +13,7 @@
 
 int main(void) {
     board_init();   // 250 MHz + vreg + clk_peri re-source; also ioexp_init + I2C1
+    fw2_app_recovery_init();
     DIAG("\n=== hello_cc1101: sub-GHz radio smoke test ===\n");
 
     // --- Phase 1: probe ---
@@ -23,14 +24,13 @@ int main(void) {
     // on, the first status frame proves it and the wait falls through;
     // on firmware that sends no status frames there is nothing to wait
     // for and the app proceeds as before.
-    uartkbd_init();
     picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_SUBGHZ));
     {
         absolute_time_t give_up   = make_timeout_time_ms(10000);
         absolute_time_t no_frames = make_timeout_time_ms(4000);
         uint32_t rails;
         while (!time_reached(give_up)) {
-            uartkbd_task();
+            fw2_app_recovery_task();
             picpwr_task();
             if (picpwr_rails(&rails)) {
                 if (rails & picpwr_zone_bit(PICPWR_ZONE_SUBGHZ)) break;
@@ -49,7 +49,7 @@ int main(void) {
     if (!ok) {
         DIAG("cc1101: halting — no radio on SPI1 (check bus/power/antenna)\n");
         while (1) {
-        uartkbd_task();
+        fw2_app_recovery_task();
         picpwr_task();
         tight_loop_contents();
     }

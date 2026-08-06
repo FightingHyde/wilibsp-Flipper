@@ -1,4 +1,5 @@
 add_executable(hello_mics main.c)
 target_link_libraries(hello_mics freewili2_bsp)
-pico_set_binary_type(hello_mics copy_to_ram)
-pico_add_extra_outputs(hello_mics)
+fw2_display_app(hello_mics
+    VERSION 001
+    DESCRIPTION "PDM microphone capture and level display")

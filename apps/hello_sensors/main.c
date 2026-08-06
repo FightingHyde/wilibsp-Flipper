@@ -11,6 +11,7 @@
 
 int main(void) {
     board_init();   // 250 MHz + clk_peri re-source + I2C1 @ 400 kHz + ioexp
+    fw2_app_recovery_init();
     DIAG("\n=== hello_sensors: I2C sensor smoke test ===\n");
 
     bool have_sht = sht40_init();
@@ -21,6 +22,7 @@ int main(void) {
          have_sht, have_opt, have_imu, have_mag);
 
     while (1) {
+        fw2_app_recovery_task();
         if (have_sht) {
             sht40_reading_t s;
             if (sht40_read(&s))

@@ -31,6 +31,7 @@ static char readbuf[1024];
 
 int main(void) {
     board_init();   /* must precede ow_open_fwgui: uart_init reads clk_peri */
+    fw2_app_recovery_init();
 
     /* ow_open_fwgui only sends the reset byte (no handshake), so it cannot
      * currently fail; the loop future-proofs a smarter open. A missing bridge
@@ -79,5 +80,8 @@ int main(void) {
         DIAG("hello_sdcard: list failed (sdfs %d)\n", (int)ow_sd_last_error());
 
     DIAG("hello_sdcard: done\n");
-    for (;;) sleep_ms(1000);
+    for (;;) {
+        fw2_app_recovery_task();
+        sleep_ms(100);
+    }
 }

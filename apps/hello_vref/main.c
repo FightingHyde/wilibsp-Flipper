@@ -44,6 +44,7 @@ static uint32_t rail_mv(uint32_t adc_input) {
 
 int main(void) {
     board_init();   /* must precede ow_open_fwgui: uart_init reads clk_peri */
+    fw2_app_recovery_init();
     rail_monitor_init();
 
     /* What board_init() left us with, before anything here touches VREF. */
@@ -77,6 +78,7 @@ int main(void) {
          TOGGLE_PIN, TOGGLE_PERIOD_MS);
 
     for (;;) {
+        fw2_app_recovery_task();
         ow_status s = ow_io_gpio_set_io_toggle(&dev, TOGGLE_PIN);
         if (s != OW_OK) {
             DIAG("hello_vref: toggle failed, status %d\n", (int)s);

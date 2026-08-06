@@ -12,6 +12,7 @@
 #include "display/dvi_osd.h"    // (harvested: software OSD for the DVI video region)
 #include "input/ft6336.h"   // (Task 5)
 #include "input/uartkbd.h"  // coprocessor link: buttons in, commands out
+#include "input/app_recovery.h" // hold HOME for five seconds to leave a RAM app
 #include "input/picpwr.h"   // power-zone requests (docs/drivers/power.md)
 #include "leds/ws2812_driver.h" // (Task 6)
 #include "audio/tone_gen.h"          // (Task 1)

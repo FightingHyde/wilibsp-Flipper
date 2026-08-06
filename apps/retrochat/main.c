@@ -19,11 +19,15 @@ static void fatal_screen(const char *msg) {
     st7796_fill_screen(0x00F8);   // big-endian red
     st7796_draw_text(8, 8, 3, 0xFFFF, 0x00F8, msg);
     DIAG("rc: FATAL %s\n", msg);
-    for (;;) tight_loop_contents();
+    for (;;) {
+        fw2_app_recovery_task();
+        tight_loop_contents();
+    }
 }
 
 int main(void) {
     board_init();                 // 250 MHz, clk_peri re-source, I2C1, ioexp
+    fw2_app_recovery_init();
     st7796_init();
     board_backlight_set(1);
     DIAG("\n=== retrochat boot ===\n");
@@ -38,14 +42,13 @@ int main(void) {
     // already on, the first status frame proves it and the wait falls
     // through; on firmware that sends no status frames there is nothing
     // to wait for and the app proceeds as before.
-    uartkbd_init();
     picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_AUDIO));
     {
         absolute_time_t give_up   = make_timeout_time_ms(10000);
         absolute_time_t no_frames = make_timeout_time_ms(4000);
         uint32_t rails;
         while (!time_reached(give_up)) {
-            uartkbd_task();
+            fw2_app_recovery_task();
             picpwr_task();
             if (picpwr_rails(&rails)) {
                 if (rails & picpwr_zone_bit(PICPWR_ZONE_AUDIO)) break;
@@ -93,7 +96,7 @@ int main(void) {
         }
 
         // Physical chord keyboard.
-        uartkbd_task();
+        fw2_app_recovery_task();
         picpwr_task();
         bool was_composing = compose_active(&s_compose);
         compose_result_t cr = COMPOSE_NONE;

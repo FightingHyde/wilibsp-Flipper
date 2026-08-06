@@ -52,6 +52,7 @@ static void paint_test_pattern(void) {
 
 int main(void) {
     board_init_clk(252000);             // 252 MHz -> exact 25.2 MHz DVI pixel clock
+    fw2_app_recovery_init();
                                         // (the board default via board_init() is 250)
     hstx_dvi_init(VID_W, VID_H);        // start the scanout (480x288 in 640x480)
     DIAG("hello_dvi: DVI up, clk_hstx=%u kHz\n",
@@ -70,6 +71,7 @@ int main(void) {
     // scanout is live and reading the framebuffer continuously.
     uint32_t t = 0;
     for (;;) {
+        fw2_app_recovery_task();
         dvi_osd_progress(rbase, rstride, VID_W, region_h, VID_H,
                          t % 101u, 100u, "DVI");
         t++;

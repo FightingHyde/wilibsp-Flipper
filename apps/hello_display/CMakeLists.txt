@@ -1,4 +1,5 @@
 add_executable(hello_display main.c)
 target_link_libraries(hello_display freewili2_bsp)
-pico_set_binary_type(hello_display copy_to_ram)
-pico_add_extra_outputs(hello_display)
+fw2_display_app(hello_display
+    VERSION 001
+    DESCRIPTION "LCD, touch, and RGB LED hardware smoke test")

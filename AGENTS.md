@@ -202,44 +202,45 @@ and recoverable without a human touching the board.
 **1. Every app declares `VERSION` and `DESCRIPTION`.**
 
 ```cmake
-fwog_display_app(bench_display
+fw2_display_app(bench_display
     VERSION 001
     DESCRIPTION "Bench console for the display drivers: charger, RTC, ...")
 ```
 
 `VERSION` is exactly three digits, bumped by hand. `DESCRIPTION` is required
 and has no default — it is what the App Explorer shows a human choosing what
-to flash. `NAME` defaults to the target minus its `_display`/`_main` suffix.
+to flash. `NAME` defaults to the CMake target.
 Missing or malformed is a configure error.
 
-**2. Holding the home button for 5 seconds must reset the deivce
+**2. Holding HOME for five seconds must leave the RAM app.**
 
-WILiBSP apps are designed to run in ram and must have a way to do a software 
-reset inorder to return back into the main flash app. You MUST not reset to BOOTSEL as
-that will prevent lockout.
+Call `fw2_app_recovery_init()` immediately after `board_init()`, then call
+`fw2_app_recovery_task()` on every main-loop path, including retry and fatal
+error loops. A five-second HOME hold performs a normal watchdog reboot so the
+DISPLAY recovery loader can resume its flash application. Do not call
+`reset_usb_boot()`; entering BOOTSEL defeats unattended recovery.
 
 **3. Every image carries a `fw2app_uf2_info_t` record.**
-`bsp/common/uf2_info.h` — an 8-byte magic (`FWGOINFO`), name, description,
-version, build, CRC. `tools/check_uf2_info.py` runs POST_BUILD and fails the
+`bsp/common/uf2_info.h` defines a 216-byte record with the 8-byte magic
+`FW2AINFO`, name, description, version, optional build identity, and CRC32.
+`tools/check_uf2_info.py` runs POST_BUILD and fails the
 build if it is missing or wrong.
 
 Three things a reader needs to know about it:
 
-- **A main UF2 contains TWO records** — its own (`cpu=main`) and the display
-  image it embeds (`cpu=display`). Consumers key on `cpu`; never assume one.
-- **Display applications carry no `build`/`build_ts`, deliberately.**
-  `display_update.c` skips the transfer by comparing the image CRC32, so a
-  build-varying byte would force a display reflash on every commit. The
-  bootloader *is* exempt: it is UF2-flashed with no CRC-skip path.
+- **Every FW2 app contains exactly one record.** This BSP targets the DISPLAY
+  CPU; FW2 RAM apps do not embed a second processor's image.
+- **Build identity is optional.** The current examples leave `build` and
+  `build_ts` empty; consumers must accept that representation.
 - **Nothing in the firmware references the record**, so it is held by
-  `-Wl,--undefined=fwog_uf2_info`. `__attribute__((retain))` is ignored by
+  `-Wl,--undefined=fw2app_uf2_info`. `__attribute__((retain))` is ignored by
   this toolchain, and the SDK's KEEP'd `.binary_info.keep.*` section is wrong
   here — picotool walks that region as an array of pointers.
 
 
-**Read this limit — it is the same limit rule 2 states.** The link error
-proves a policy was *declared*, not that `board_watchdog_kick()` is reached
-on every path. No linker can see that.
+The wrapper proves that metadata was declared and survived the linker. It
+cannot prove `fw2_app_recovery_task()` is reached on every runtime path;
+review and hardware verification must cover that part.
 
 ## Peripheral power zones — request rails BEFORE touching hardware
 
@@ -254,12 +255,12 @@ The pattern for any app using a peripheral (see `docs/drivers/power.md`
 for the full zone map, per-zone cautions, and the protocol):
 
 ```c
-uartkbd_init();                                       // link to the sequencer
+fw2_app_recovery_init();                              // keyboard link + HOME recovery
 picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_AUDIO)); // or _CAN, _RGB_LEDS, ...
 // rails take ~1 s to apply; THEN init the peripheral
 ...
 while (true) {
-    uartkbd_task();
+    fw2_app_recovery_task();
     picpwr_task();     // re-asserts your rails if the sequencer drops them
     ...
 }

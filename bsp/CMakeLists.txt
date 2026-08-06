@@ -1,5 +1,6 @@
 # freewili2_bsp — shared board-support library (STATIC once it has sources).
 add_library(freewili2_bsp STATIC
+    common/uf2_info.c
     agentio/agentio.c
     agentio/agentio_rle.c
     agentio/agentio_shadow.c
@@ -51,6 +52,7 @@ add_library(freewili2_bsp STATIC
     keyboard/fw2kb_hidmap.c
     input/uartkbd_parse.c
     input/uartkbd.c
+    input/app_recovery.c
     input/picpwr_frame.c
     input/picpwr.c
     usbhost/usb_core.c
@@ -79,7 +81,8 @@ target_link_libraries(freewili2_bsp PUBLIC
     hardware_clocks
     hardware_vreg
     hardware_psram
-    hardware_pwm)
+    hardware_pwm
+    hardware_watchdog)
 
 target_compile_definitions(freewili2_bsp PUBLIC FW2_AGENTIO=$<BOOL:${FW2_AGENTIO}>)
 
@@ -105,3 +108,54 @@ pico_generate_pio_header(freewili2_bsp
 # Generate the IR PIO headers into the build tree for ir_capture.c and ir_tx.c.
 pico_generate_pio_header(freewili2_bsp ${CMAKE_CURRENT_SOURCE_DIR}/ir/ir_capture.pio)
 pico_generate_pio_header(freewili2_bsp ${CMAKE_CURRENT_SOURCE_DIR}/ir/ir_tx.pio)
+
+set(FW2_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}/../tools" CACHE PATH
+    "Directory containing FW2 build validation tools")
+
+function(fw2_display_app target)
+    cmake_parse_arguments(PARSE_ARGV 1 APP "" "NAME;VERSION;DESCRIPTION" "")
+    if(NOT APP_NAME)
+        set(APP_NAME "${target}")
+    endif()
+    if(NOT APP_VERSION MATCHES "^[0-9][0-9][0-9]$")
+        message(FATAL_ERROR
+            "${target}: VERSION must be exactly three digits (000-999)")
+    endif()
+    if(NOT APP_DESCRIPTION)
+        message(FATAL_ERROR
+            "${target}: DESCRIPTION is required for the App Explorer")
+    endif()
+    string(LENGTH "${APP_NAME}" _name_len)
+    string(LENGTH "${APP_DESCRIPTION}" _description_len)
+    if(_name_len GREATER 31)
+        message(FATAL_ERROR "${target}: NAME exceeds 31 ASCII bytes")
+    endif()
+    if(_description_len GREATER 127)
+        message(FATAL_ERROR "${target}: DESCRIPTION exceeds 127 ASCII bytes")
+    endif()
+
+    string(REGEX REPLACE "^0+([0-9])" "\\1" _version_number
+           "${APP_VERSION}")
+    set(_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}_uf2_info")
+    add_custom_command(
+        OUTPUT "${_dir}/${target}_uf2_info.c"
+        COMMAND ${Python3_EXECUTABLE} "${FW2_TOOLS_DIR}/gen_uf2_info.py"
+                --out "${_dir}/${target}_uf2_info.c"
+                --version "${_version_number}"
+                --name "${APP_NAME}"
+                --description "${APP_DESCRIPTION}"
+        DEPENDS "${FW2_TOOLS_DIR}/gen_uf2_info.py"
+        COMMENT "Generating FW2 app metadata for ${target}"
+        VERBATIM)
+    target_sources(${target} PRIVATE "${_dir}/${target}_uf2_info.c")
+    target_link_options(${target} PRIVATE
+        -Wl,--undefined=fw2app_uf2_info)
+
+    # /apps images execute only from SRAM or PSRAM; never target QSPI flash.
+    pico_set_binary_type(${target} copy_to_ram)
+    pico_add_extra_outputs(${target})
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} "${FW2_TOOLS_DIR}/check_uf2_info.py"
+                --bin "$<TARGET_FILE_DIR:${target}>/${target}.bin"
+        VERBATIM)
+endfunction()

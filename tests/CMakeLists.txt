@@ -255,6 +255,15 @@ target_include_directories(test_uartkbd_inject PRIVATE
 target_link_libraries(test_uartkbd_inject m)
 add_test(NAME uartkbd_inject COMMAND test_uartkbd_inject)
 
+add_executable(test_app_recovery
+    test_app_recovery.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/input/app_recovery.c)
+target_include_directories(test_app_recovery PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(test_app_recovery PRIVATE HOST_TEST)
+add_test(NAME app_recovery COMMAND test_app_recovery)
+
 add_executable(test_agentio_rle
     test_agentio_rle.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/agentio/agentio_rle.c)

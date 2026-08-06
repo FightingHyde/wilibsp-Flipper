@@ -1,4 +1,5 @@
 add_executable(hello_audio main.c)
 target_link_libraries(hello_audio freewili2_bsp)
-pico_set_binary_type(hello_audio copy_to_ram)
-pico_add_extra_outputs(hello_audio)
+fw2_display_app(hello_audio
+    VERSION 001
+    DESCRIPTION "Speaker and audio-codec playback test with volume controls")

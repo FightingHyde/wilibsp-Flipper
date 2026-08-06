@@ -15,6 +15,7 @@
 
 int main(void) {
     board_init();   /* must precede ow_open_fwgui: uart_init reads clk_peri */
+    fw2_app_recovery_init();
     ioexp_vref(VREF_3V3);   /* required: no VIO rail => the header pin cannot drive */
 
     static ow_device dev;   /* ~37 KB of buffers - far too big for the 2 KB stack */
@@ -28,6 +29,7 @@ int main(void) {
     DIAG("toggleled: link up, toggling main-CPU GPIO 25 every 500 ms\n");
 
     for (;;) {
+        fw2_app_recovery_task();
         ow_status s = ow_io_gpio_set_io_toggle(&dev, 25);
         if (s != OW_OK)
             DIAG("toggleled: toggle failed, status %d\n", (int)s);

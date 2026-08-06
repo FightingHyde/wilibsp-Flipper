@@ -20,11 +20,15 @@ static const char *k_labels[] = {
 int main(void)
 {
     board_init();
+    fw2_app_recovery_init();
     size_t psram_bytes = psram_init();
     if (psram_bytes < (size_t)ST7796_W * ST7796_H * 2) {
         DIAG("hello_agentio: PSRAM absent/too small (%u bytes) - halting\n",
              (unsigned)psram_bytes);
-        for (;;) tight_loop_contents();
+        for (;;) {
+            fw2_app_recovery_task();
+            tight_loop_contents();
+        }
     }
     st7796_init();
     ft6336_init();
@@ -35,7 +39,6 @@ int main(void)
     // below is erased from the shadow the instant it starts (see
     // docs/drivers/agentio.md, "three app calls").
     fw2kb_t kb;
-    uartkbd_init();
     fw2kb_init(&kb);
     agentio_init();
     agentio_bind_keyboard(&kb);
@@ -53,7 +56,7 @@ int main(void)
     DIAG("hello_agentio: pattern drawn, agentio up\n");
 
     for (;;) {
-        uartkbd_task();
+        fw2_app_recovery_task();
 
         uartkbd_event_t bev;
         while (uartkbd_next_event(&bev)) {

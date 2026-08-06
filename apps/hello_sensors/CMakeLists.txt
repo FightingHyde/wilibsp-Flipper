@@ -1,4 +1,5 @@
 add_executable(hello_sensors main.c)
 target_link_libraries(hello_sensors freewili2_bsp)
-pico_set_binary_type(hello_sensors copy_to_ram)
-pico_add_extra_outputs(hello_sensors)
+fw2_display_app(hello_sensors
+    VERSION 001
+    DESCRIPTION "Temperature, light, accelerometer, and magnetometer viewer")

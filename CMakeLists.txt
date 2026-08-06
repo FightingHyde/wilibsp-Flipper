@@ -12,6 +12,7 @@ option(FW2_AGENTIO "Build the agentio remote-control/capture harness" ON)
 include(pico_sdk_import.cmake)
 project(wilibsp C CXX ASM)
 set(CMAKE_C_STANDARD 11)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 pico_sdk_init()
 
 add_subdirectory(bsp)
