@@ -18,7 +18,11 @@ on WiliIR 2026-07-05/06 and again here via `apps/hello_usbdrive`.
   drive behind the CH334F, resets its port, and enumerates the drive at
   address 2; `usb_hub_poll_drive()` does one non-blocking pass over the
   CH334F's ports per call (`usb_msc_task()`'s `ST_HUB_WAIT` state re-polls it
-  every tick against its own timeout) and `usb_hub_drive_present()` polls port
+  about every 50 ms while waiting indefinitely for a connection). Transient
+  reset/enumeration failures receive a bounded set of backed-off retries;
+  non-MSC devices and devices that exhaust those retries are ignored until
+  they reconnect.
+  `usb_hub_drive_present()` polls port
   status change bits for detach. Since the CH334F is always on-board (i.e.
   hub passthrough is the *normal* path, not an edge case), a blocking
   multi-second wait here previously stalled the whole app's main loop any

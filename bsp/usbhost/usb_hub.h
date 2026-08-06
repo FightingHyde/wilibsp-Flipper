@@ -8,10 +8,11 @@ hcd_result_t usb_hub_attach(const usb_device_t *hub);
 // blocking sequence, but only runs when a device is actually present). Returns
 // true + fills *drive on success. Returns false immediately (no sleep_ms) when
 // nothing is connected yet -- call again on the next usb_msc_task() tick; the
-// caller owns the overall wait timeout. Replaces the old usb_hub_wait_drive(),
-// which blocked the whole caller for up to timeout_ms (see AGENTS.md/repo
-// memory: this stalled the wilicankit LVGL+touch loop for ~5s at a time
-// whenever a hub was attached with no drive behind it).
+// caller may wait indefinitely for a connection. Transient reset/enumeration
+// failures receive a bounded set of backed-off retries; a non-MSC device, or a
+// device that exhausts those retries, is ignored until it reconnects. Replaces
+// the old usb_hub_wait_drive(), which blocked the whole caller for up to
+// timeout_ms whenever a hub was attached with no drive behind it.
 bool         usb_hub_poll_drive(usb_device_t *drive);
 bool         usb_hub_drive_present(void);
 void         usb_hub_detach(void);

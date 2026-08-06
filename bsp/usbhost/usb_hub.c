@@ -27,6 +27,25 @@ static bool         active;
 // attempt below (~100-600 ms) would re-run on every poll forever.
 #define HUB_CONNECT_CONFIRM_POLLS 3
 static uint8_t      connect_streak[8];
+// Bound and back off retries after transient reset/enumeration failures.  A
+// confirmed non-MSC device is blocked immediately; repeated failures are
+// blocked after HUB_ENUM_MAX_ATTEMPTS.  Either condition is cleared by a
+// disconnect/reconnect, so an unsupported or broken device cannot turn the
+// 50 ms poll into a recurring 100-600 ms main-loop stall.
+#define HUB_ENUM_MAX_ATTEMPTS 3
+#define HUB_ENUM_RETRY_BASE_MS 500
+static uint8_t       enum_attempts[8];
+static absolute_time_t enum_retry_at[8];
+static bool          enum_blocked[8];
+
+static void enum_failed(uint8_t port) {
+    if (++enum_attempts[port] >= HUB_ENUM_MAX_ATTEMPTS) {
+        enum_blocked[port] = true;
+        return;
+    }
+    uint32_t delay_ms = HUB_ENUM_RETRY_BASE_MS << (enum_attempts[port] - 1);
+    enum_retry_at[port] = make_timeout_time_ms(delay_ms);
+}
 
 static hcd_result_t hub_set_port_feature(uint8_t port, uint8_t feature) {
     const uint8_t setup[8] = {0x23, 3, feature, 0, port, 0, 0, 0};
@@ -55,6 +74,8 @@ hcd_result_t usb_hub_attach(const usb_device_t *dev) {
     hub = *dev;
     drive_port = -1;
     for (size_t i = 0; i < sizeof connect_streak; i++) connect_streak[i] = 0;
+    for (size_t i = 0; i < sizeof enum_attempts; i++) enum_attempts[i] = 0;
+    for (size_t i = 0; i < sizeof enum_blocked; i++) enum_blocked[i] = false;
 
     // Hub descriptor (class type 0x29): bNbrPorts at offset 2,
     // bPwrOn2PwrGood (2 ms units) at offset 5
@@ -93,8 +114,9 @@ hcd_result_t usb_hub_attach(const usb_device_t *dev) {
 // it at address 2. Non-blocking when nothing is connected (just a handful of
 // quick control transfers, no sleep_ms). When a device IS connected, runs the
 // bounded (~0.6 s worst case) debounce/reset/recovery sequence for that one
-// device before returning -- that cost is unavoidable and only paid once per
-// real attach, not on every idle poll.
+// device before returning. That cost is unavoidable, but the bounded retry
+// policy permits it at most three times per physical connection rather than
+// on every idle poll.
 // Note: after PORT_RESET the downstream device answers at address 0; the hub
 // itself keeps its address, so core_enumerate's address-0 phase is
 // unambiguous. Deliberately no hcd_bus_reset here -- that would reset the
@@ -103,15 +125,33 @@ bool usb_hub_poll_drive(usb_device_t *drive) {
     for (uint8_t p = 1; p <= n_ports; p++) {
         uint16_t st, chg;
         if (hub_get_port_status(p, &st, &chg) != HCD_OK) continue;
-        if (chg & PORT_CHG_CONNECTION)
-            hub_clear_port_feature(p, HUB_FEAT_C_PORT_CONNECTION);
-        if (!(st & PORT_STAT_CONNECTION)) { connect_streak[p] = 0; continue; }
+        if (chg & PORT_CHG_CONNECTION) {
+            if (hub_clear_port_feature(p, HUB_FEAT_C_PORT_CONNECTION) != HCD_OK)
+                continue;
+            // A connection-change event while the status is still connected
+            // can be an unplug/replug between polls.  Treat it as a new
+            // device and permit one fresh enumeration attempt.
+            connect_streak[p] = 0;
+            enum_attempts[p] = 0;
+            enum_blocked[p] = false;
+        }
+        if (!(st & PORT_STAT_CONNECTION)) {
+            connect_streak[p] = 0;
+            enum_attempts[p] = 0;
+            enum_blocked[p] = false;
+            continue;
+        }
         if (st & PORT_STAT_LOW_SPEED) { connect_streak[p] = 0; continue; }    // LS not supported
+        if (enum_blocked[p]) continue;
+        if (enum_attempts[p] && !time_reached(enum_retry_at[p])) continue;
         if (++connect_streak[p] < HUB_CONNECT_CONFIRM_POLLS) continue;   // not confirmed yet
         connect_streak[p] = 0;   // reset regardless of outcome below
 
         sleep_ms(100);                              // connect debounce
-        if (hub_set_port_feature(p, HUB_FEAT_PORT_RESET) != HCD_OK) continue;
+        if (hub_set_port_feature(p, HUB_FEAT_PORT_RESET) != HCD_OK) {
+            enum_failed(p);
+            continue;
+        }
         // Wait for reset-complete (C_PORT_RESET), max 500 ms
         absolute_time_t rst_deadline = make_timeout_time_ms(500);
         bool reset_done = false;
@@ -124,10 +164,14 @@ bool usb_hub_poll_drive(usb_device_t *drive) {
             }
             sleep_ms(10);
         }
-        if (!reset_done) continue;
+        if (!reset_done) {
+            enum_failed(p);
+            continue;
+        }
         sleep_ms(20);                               // post-reset recovery
 
-        if (core_enumerate(2, drive) == HCD_OK && drive->cfg.is_msc) {
+        hcd_result_t er = core_enumerate(2, drive);
+        if (er == HCD_OK && drive->cfg.is_msc) {
             drive_port = p;
             // Start the hardware-polled status pipe now that no more
             // EPX control traffic is pending (see note in attach).
@@ -135,6 +179,11 @@ bool usb_hub_poll_drive(usb_device_t *drive) {
                                hub.cfg.hub_int_mps, hub.cfg.hub_int_interval);
             active = true;
             return true;
+        }
+        if (er == HCD_OK) {
+            enum_blocked[p] = true;                 // unsupported non-MSC
+        } else {
+            enum_failed(p);                         // bounded transient retry
         }
     }
     return false;
