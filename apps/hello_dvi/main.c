@@ -29,6 +29,8 @@ static const uint16_t BARS[8] = {
     0x0000, // black
 };
 
+static void paint_test_pattern(void);
+
 static void draw_about(const char *name, uint16_t version,
                        const char *repository) {
     uint16_t *base = hstx_dvi_region_base();
@@ -45,6 +47,12 @@ static void draw_about(const char *name, uint16_t version,
                  "SOURCE:");
     dvi_osd_text(base, stride, w, h, 12, 175, 1, 0xFFFF, 0x0000,
                  repository);
+}
+
+static void restore_dvi(void) {
+    paint_test_pattern();
+    dvi_osd_text_msg(hstx_dvi_region_base(), hstx_dvi_video_stride(),
+                     VID_W, hstx_dvi_region_h(), VID_H, "FREEWILI 2 DVI");
 }
 
 // Paint 8 vertical colour bars across the video region, then a 1px white box
@@ -74,7 +82,7 @@ int main(void) {
     fw2_app_recovery_init();
                                         // (the board default via board_init() is 250)
     hstx_dvi_init(VID_W, VID_H);        // start the scanout (480x288 in 640x480)
-    fw2_app_about_set_renderer(draw_about);
+    fw2_app_about_set_renderer(draw_about, restore_dvi);
     DIAG("hello_dvi: DVI up, clk_hstx=%u kHz\n",
          (unsigned)(clock_get_hz(clk_hstx) / 1000u));
 

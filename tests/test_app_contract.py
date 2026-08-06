@@ -171,3 +171,12 @@ def test_about_uses_embedded_version_and_repository_metadata():
     assert "info->app_version" in about
     assert "fw2app_repository_url" in about
     assert "--repository" in generator
+
+
+def test_about_release_restores_the_registered_surface():
+    about = (ROOT / "bsp/input/app_about.c").read_text(encoding="utf-8")
+    released = about[about.index("if (!down)"):about.index("if (!s_tracking)")]
+    assert "s_shown && s_restore" in released
+    assert "s_restore();" in released
+    assert "memcpy(s_lcd_backup" in about
+    assert "st7796_blit_rect(" in about
