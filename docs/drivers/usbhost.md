@@ -16,12 +16,23 @@ on WiliIR 2026-07-05/06 and again here via `apps/hello_usbdrive`.
   clearing. Uses the SIE directly, no TinyUSB.
 - **`usb_hub`** — single-tier hub passthrough only: `usb_hub_attach()` finds a
   drive behind the CH334F, resets its port, and enumerates the drive at
-  address 2; `usb_hub_wait_drive()` / `usb_hub_drive_present()` poll port
-  status change bits for attach/detach. A second hub tier (a hub plugged into
-  the CH334F) is out of scope — not implemented, not tested.
+  address 2; `usb_hub_poll_drive()` does one non-blocking pass over the
+  CH334F's ports per call (`usb_msc_task()`'s `ST_HUB_WAIT` state re-polls it
+  about every 50 ms while waiting indefinitely for a connection). Transient
+  reset/enumeration failures receive a bounded set of backed-off retries;
+  non-MSC devices and devices that exhaust those retries are ignored until
+  they reconnect.
+  `usb_hub_drive_present()` polls port
+  status change bits for detach. Since the CH334F is always on-board (i.e.
+  hub passthrough is the *normal* path, not an edge case), a blocking
+  multi-second wait here previously stalled the whole app's main loop any
+  time nothing was plugged into the external USB-A port — fatal for apps
+  polling touch/LVGL in the same loop. A second hub
+  tier (a hub plugged into the CH334F) is out of scope — not implemented, not
+  tested.
 - **`usb_msc`** — BOT transport + the hotplug/enumeration state machine
-  (`ST_DISCONNECTED` → `ST_READY` / `ST_FAILED`), SCSI bring-up (INQUIRY +
-  READ CAPACITY), block read/write. **3-tier recovery:** tier 1 is per-command
+  (`ST_DISCONNECTED` → `ST_HUB_WAIT` → `ST_READY` / `ST_FAILED`), SCSI
+  bring-up (INQUIRY + READ CAPACITY), block read/write. **3-tier recovery:** tier 1 is per-command
   retry-once on a stalled CSW; tier 2 is `bot_reset_recovery()` (Bulk-Only
   Mass Storage Reset + clear both endpoint halts) on a transport-level
   failure; tier 3 is `enter_failed()` → full `teardown()` and re-enumerate

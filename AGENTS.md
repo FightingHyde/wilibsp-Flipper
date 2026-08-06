@@ -19,8 +19,9 @@ built on. Read it before making changes.
 - `libs/` — optional static libraries apps can link in addition to the BSP.
   Today: `libs/onewili` — the generated OneWili C command API for driving the
   **main CPU** (GPIO, LEDs, radio, …) over the FwGUI display link (UART0,
-  8 Mbaud). See `libs/onewili/README.md`; `apps/toggleled` is the worked
-  example.
+  8 Mbaud), plus `ow_sd_*` for reading and writing the **SD card** the main
+  CPU owns (SDFS over the same link). See `libs/onewili/README.md`;
+  `apps/toggleled` and `apps/hello_sdcard` are the worked examples.
 - `tools/fw.py` (+ `tools/fw` / `tools/fw.cmd` launchers) — a cross-platform
   CLI that drives CMake + OpenOCD identically on Windows and Linux.
 - `tests/` — a standalone host CTest tree for pure logic (no Pico SDK, no
@@ -361,6 +362,8 @@ the probe once and every one-shot verb reuses it.
   (`docs/drivers/lora.md`), NFC ST25R3916B, ESP32-C5 Bottlenose
   (MAIN-side), CM0 Linux bridge, and the automatic power-zone manager
   (`docs/drivers/power.md`).
+  That covers the SD card too — the display CPU has no direct card path, so
+  `ow_sd_*` is the only route (`apps/hello_sdcard`).
 - **Original hardware description**: `FwDisplayVibe.md` (repo root) — a
   secondary source, useful for the broader peripheral inventory (radio, NFC,
   IR, DVI, audio, mics, buttons, PIO-USB, sensors) not yet in `board.h`, but
