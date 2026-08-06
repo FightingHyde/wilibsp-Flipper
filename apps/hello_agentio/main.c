@@ -31,6 +31,7 @@ int main(void)
         }
     }
     st7796_init();
+    fw2_app_about_use_lcd();
     ft6336_init();
 
     // agentio_init() zeroes the shadow framebuffer, so it must run before

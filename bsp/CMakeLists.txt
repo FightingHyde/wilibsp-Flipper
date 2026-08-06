@@ -53,6 +53,7 @@ add_library(freewili2_bsp STATIC
     input/uartkbd_parse.c
     input/uartkbd.c
     input/app_recovery.c
+    input/app_about.c
     input/picpwr_frame.c
     input/picpwr.c
     usbhost/usb_core.c
@@ -113,7 +114,7 @@ set(FW2_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}/../tools" CACHE PATH
     "Directory containing FW2 build validation tools")
 
 function(fw2_display_app target)
-    cmake_parse_arguments(PARSE_ARGV 1 APP "" "NAME;VERSION;DESCRIPTION" "")
+    cmake_parse_arguments(PARSE_ARGV 1 APP "" "NAME;VERSION;DESCRIPTION;REPOSITORY" "")
     if(NOT APP_NAME)
         set(APP_NAME "${target}")
     endif()
@@ -124,6 +125,9 @@ function(fw2_display_app target)
     if(NOT APP_DESCRIPTION)
         message(FATAL_ERROR
             "${target}: DESCRIPTION is required for the App Explorer")
+    endif()
+    if(NOT APP_REPOSITORY)
+        set(APP_REPOSITORY "https://github.com/freewili/wilibsp")
     endif()
     if(APP_NAME MATCHES "[^ -~]" OR APP_DESCRIPTION MATCHES "[^ -~]")
         message(FATAL_ERROR
@@ -149,6 +153,7 @@ function(fw2_display_app target)
                 --version "${_version_number}"
                 --name "${APP_NAME}"
                 --description "${APP_DESCRIPTION}"
+                --repository "${APP_REPOSITORY}"
         DEPENDS "${FW2_TOOLS_DIR}/gen_uf2_info.py"
         COMMENT "Generating FW2 app metadata for ${target}"
         VERBATIM)

@@ -32,6 +32,7 @@ int main(void) {
     DIAG("\n=== hello_audio: full-duplex boot ===\n");
 
     st7796_init();
+    fw2_app_about_use_lcd();
     st7796_fill_screen(rgb565_be(0, 0, 40));
     st7796_draw_text(8, 8, 2, rgb565_be(255,255,255), rgb565_be(0,0,40),
                      "AUDIO OUT + MIC");

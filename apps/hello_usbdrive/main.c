@@ -47,6 +47,7 @@ int main(void) {
     fw2_app_recovery_init();
     DIAG("hello_usbdrive: up\n");
     st7796_init();
+    fw2_app_about_use_lcd();
     st7796_fill_screen(be16(0x0000));
     st7796_draw_text(12, 12, 2, be16(0xFFFF), be16(0x0000), "USB MASS STORAGE");
     st7796_draw_text(12, 45, 1, be16(0xFFFF), be16(0x0000),

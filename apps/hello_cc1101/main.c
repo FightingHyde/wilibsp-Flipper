@@ -15,6 +15,7 @@ int main(void) {
     board_init();   // 250 MHz + vreg + clk_peri re-source; also ioexp_init + I2C1
     fw2_app_recovery_init();
     st7796_init();
+    fw2_app_about_use_lcd();
     st7796_fill_screen(0x0000);
     board_backlight_set(1);
     st7796_draw_text(8, 8, 2, 0xFFFF, 0x0000, "CC1101 RADIO TEST");

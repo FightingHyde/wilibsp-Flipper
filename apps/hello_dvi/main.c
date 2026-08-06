@@ -12,6 +12,7 @@
 #include "platform/diag.h"
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
+#include <stdio.h>
 
 #define VID_W 480
 #define VID_H 288
@@ -27,6 +28,24 @@ static const uint16_t BARS[8] = {
     0x001F, // blue
     0x0000, // black
 };
+
+static void draw_about(const char *name, uint16_t version,
+                       const char *repository) {
+    uint16_t *base = hstx_dvi_region_base();
+    int stride = hstx_dvi_video_stride();
+    int w = hstx_dvi_video_w();
+    int h = hstx_dvi_region_h();
+    char line[48];
+    dvi_osd_fill_rect(base, stride, w, h, 0, 0, w, h, 0x0000);
+    dvi_osd_text(base, stride, w, h, 12, 20, 3, 0xFFFF, 0x0000, "ABOUT");
+    dvi_osd_text(base, stride, w, h, 12, 70, 2, 0x07E0, 0x0000, name);
+    snprintf(line, sizeof line, "VERSION %03u", (unsigned)version);
+    dvi_osd_text(base, stride, w, h, 12, 105, 2, 0xFFFF, 0x0000, line);
+    dvi_osd_text(base, stride, w, h, 12, 150, 1, 0x07FF, 0x0000,
+                 "SOURCE:");
+    dvi_osd_text(base, stride, w, h, 12, 175, 1, 0xFFFF, 0x0000,
+                 repository);
+}
 
 // Paint 8 vertical colour bars across the video region, then a 1px white box
 // outline around the whole region, into the strided native-endian framebuffer.
@@ -55,6 +74,7 @@ int main(void) {
     fw2_app_recovery_init();
                                         // (the board default via board_init() is 250)
     hstx_dvi_init(VID_W, VID_H);        // start the scanout (480x288 in 640x480)
+    fw2_app_about_set_renderer(draw_about);
     DIAG("hello_dvi: DVI up, clk_hstx=%u kHz\n",
          (unsigned)(clock_get_hz(clk_hstx) / 1000u));
 

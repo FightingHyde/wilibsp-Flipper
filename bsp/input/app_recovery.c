@@ -4,6 +4,7 @@
 #include "hardware/watchdog.h"
 #include "pico/time.h"
 #include "input/uartkbd.h"
+#include "input/app_about.h"
 #include "platform/diag.h"
 #endif
 
@@ -44,6 +45,7 @@ void fw2_app_recovery_init(void) {
 
 void fw2_app_recovery_task(void) {
     uartkbd_task();
+    fw2_app_about_task();
     const bool home = uartkbd_button_down_fresh(
         UARTKBD_BTN_HOME, FW2_APP_RECOVERY_FRAME_MAX_AGE_MS);
     if (fw2_app_recovery_state_update(&recovery, home,

@@ -182,6 +182,7 @@ int main(void)
         }
     }
     st7796_init();
+    fw2_app_about_use_lcd();
     st7796_fill_screen(COL_BLACK);
     board_backlight_set(1);
     DIAG("hello_charger up\n");

@@ -150,3 +150,24 @@ def test_declared_power_zones_are_serviced_and_requested_before_use():
         if peripheral_inits and request_at > min(peripheral_inits):
             offenders.append(source_path.parent.name + ": request follows init")
     assert not offenders, "invalid power-zone lifecycle: " + ", ".join(offenders)
+
+
+def test_every_app_registers_an_about_surface():
+    offenders = []
+    for app in app_dirs():
+        main = app / "main.c"
+        if not main.exists():
+            continue
+        source = main.read_text(encoding="utf-8")
+        if ("fw2_app_about_use_lcd()" not in source and
+                "fw2_app_about_set_renderer(" not in source):
+            offenders.append(app.name)
+    assert not offenders, "apps missing PAGE-hold About screen: " + ", ".join(offenders)
+
+
+def test_about_uses_embedded_version_and_repository_metadata():
+    about = (ROOT / "bsp/input/app_about.c").read_text(encoding="utf-8")
+    generator = (ROOT / "tools/gen_uf2_info.py").read_text(encoding="utf-8")
+    assert "info->app_version" in about
+    assert "fw2app_repository_url" in about
+    assert "--repository" in generator

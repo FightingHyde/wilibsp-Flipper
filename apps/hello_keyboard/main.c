@@ -204,6 +204,7 @@ int main(void)
         }
     }
     st7796_init();
+    fw2_app_about_use_lcd();
     ft6336_init();
     fw2kb_init(&s_kb);
     agentio_init();

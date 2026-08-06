@@ -9,6 +9,7 @@ int main(void) {
     board_init();
     fw2_app_recovery_init();
     st7796_init();
+    fw2_app_about_use_lcd();
     st7796_fill_screen(0x0000);
     board_backlight_set(1);
 
