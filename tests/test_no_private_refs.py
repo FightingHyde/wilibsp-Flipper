@@ -1,14 +1,10 @@
-#!/usr/bin/env python3
-"""Reject private upstream references in wilibsp's public Markdown."""
+"""Keep customer-facing wilibsp documentation independent of private source trees."""
 
-from __future__ import annotations
-
+import pathlib
 import re
-import sys
-from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 PUBLIC_ROOTS = ("README.md", "docs", "apps", "libs")
 FORBIDDEN = (
     (re.compile(r"freewili-firmware", re.IGNORECASE), "private repository name"),
@@ -19,7 +15,7 @@ FORBIDDEN = (
 )
 
 
-def markdown_files(root: Path = REPO_ROOT):
+def markdown_files(root):
     for entry in PUBLIC_ROOTS:
         path = root / entry
         if path.is_file():
@@ -28,7 +24,7 @@ def markdown_files(root: Path = REPO_ROOT):
             yield from sorted(path.rglob("*.md"))
 
 
-def violations(root: Path = REPO_ROOT):
+def violations(root):
     for path in markdown_files(root):
         text = path.read_text(encoding="utf-8", errors="replace")
         for line_number, line in enumerate(text.splitlines(), 1):
@@ -38,16 +34,25 @@ def violations(root: Path = REPO_ROOT):
                     yield path.relative_to(root), line_number, description, match.group(0)
 
 
-def main() -> int:
-    found = list(violations())
-    for path, line, description, match in found:
-        print(f"FAIL {path}:{line}: {description}: {match}")
-    if found:
-        print(f"FAILED {len(found)} private documentation reference(s)")
-        return 1
-    print("OK: public documentation contains no private upstream references")
-    return 0
+def test_repository_docs_have_no_private_refs():
+    assert list(violations(REPO_ROOT)) == []
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def test_private_source_reference_is_detected(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "bad.md").write_text(
+        "Copied from freewili-firmware/freewilimain/rmpLib.\n",
+        encoding="utf-8",
+    )
+    found = list(violations(tmp_path))
+    assert found
+    assert found[0][0] == pathlib.Path("docs/bad.md")
+
+
+def test_non_public_files_are_not_scanned(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("freewili-firmware\n", encoding="utf-8")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "notes.txt").write_text("freewilimain\n", encoding="utf-8")
+    assert list(violations(tmp_path)) == []

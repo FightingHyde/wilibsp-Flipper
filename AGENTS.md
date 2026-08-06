@@ -408,11 +408,11 @@ When importing or refreshing information from the stock firmware:
    calling the BSP current. Do not pull across unrelated local changes.
 2. Update the relevant public driver or hardware page, not an internal-source
    breadcrumb.
-3. Run `python tools/check_public_docs.py` and `git diff --check`.
+3. Run `python -m pytest tests/test_no_private_refs.py` and `git diff --check`.
 4. Preserve honest verification language: a behavior without a local findings
    record is expected or documented, not hardware-verified by this BSP.
 
-`tools/check_public_docs.py` scans the Markdown shipped in this repository for
+`tests/test_no_private_refs.py` scans the Markdown shipped in this repository for
 private upstream repository and path references. Add a regression pattern when
 a new kind of private breadcrumb is discovered.
 
