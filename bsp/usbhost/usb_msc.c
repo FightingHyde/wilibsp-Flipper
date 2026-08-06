@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
 
-typedef enum { ST_DISCONNECTED, ST_READY, ST_FAILED } msc_state_t;
+typedef enum { ST_DISCONNECTED, ST_HUB_WAIT, ST_READY, ST_FAILED } msc_state_t;
 
 static msc_state_t  state = ST_DISCONNECTED;
 static usb_device_t drive;          // the MSC device (addr 1 direct, 2 via hub)
@@ -135,6 +135,7 @@ static msc_result_t scsi_bringup(void) {
 // ---------------------------------------------------------------------------
 
 static absolute_time_t failed_retry_at;
+static absolute_time_t hub_poll_at;   // ST_HUB_WAIT: throttle usb_hub_poll_drive() calls
 
 static void teardown(void) {
     state = ST_DISCONNECTED;
@@ -173,18 +174,19 @@ void usb_msc_task(void) {
 
         if (dev.cfg.is_hub) {
             // Hub passthrough (Task 10): find a drive on a hub port,
-            // reset it, enumerate it at address 2.
+            // reset it, enumerate it at address 2. Polled non-blockingly
+            // from ST_HUB_WAIT below -- don't block the caller here (this
+            // stalled the whole app, e.g. an LVGL+touch loop, for up to 5s
+            // at a time whenever a hub was attached with nothing plugged
+            // into it).
             if (usb_hub_attach(&dev) != HCD_OK) {
                 printf("msc: hub attach failed\n");
                 enter_failed();
                 return;
             }
-            if (usb_hub_wait_drive(&drive, 5000) != HCD_OK) {
-                printf("msc: no drive found behind hub\n");
-                enter_failed();
-                return;
-            }
-            via_hub = true;
+            hub_poll_at = make_timeout_time_ms(50);
+            state = ST_HUB_WAIT;
+            return;
         } else if (dev.cfg.is_msc) {
             drive = dev;
             via_hub = false;
@@ -204,6 +206,29 @@ void usb_msc_task(void) {
         }
         return;
     }
+    case ST_HUB_WAIT:
+        // The CH334F hub is always on-board, so "attached with nothing
+        // plugged into it" is the normal idle state, not a failure -- stay
+        // here indefinitely (just watching port status at a throttled ~50 ms
+        // cadence) instead of tearing down and re-doing the whole bus
+        // reset/enumerate/hub-attach sequence every retry, which is what
+        // caused the remaining periodic ~100-300 ms main-loop stalls.
+        if (hcd_port_speed() == HCD_SPEED_NONE) { teardown(); return; }
+        if (!time_reached(hub_poll_at)) return;
+        hub_poll_at = make_timeout_time_ms(50);
+        if (usb_hub_poll_drive(&drive)) {
+            via_hub = true;
+            toggle_in = toggle_out = 0;
+            msc_result_t br = scsi_bringup();
+            if (br == MSC_OK) {
+                state = ST_READY;
+            } else {
+                printf("msc: scsi bring-up failed (%d), sense=%06lx\n",
+                       (int)br, (unsigned long)last_sense);
+                enter_failed();
+            }
+        }
+        return;
     case ST_READY:
         if (hcd_port_speed() == HCD_SPEED_NONE) { teardown(); return; }
         if (via_hub && !usb_hub_drive_present()) { teardown(); return; }
