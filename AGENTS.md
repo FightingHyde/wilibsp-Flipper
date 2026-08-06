@@ -86,6 +86,11 @@ published app release must attach its validated `.uf2` as a downloadable
 release artifact in the app's repository; a source tag or ephemeral CI
 artifact by itself is insufficient.
 
+If an app's source repository is public, the app contract also requires an
+on-device About screen showing the app version and repository link. Holding
+PAGE for five seconds is the conventional unobtrusive way to reveal it, though
+another discoverable gesture or menu entry is acceptable.
+
 After `fw new-app <name>` you must add
 `add_subdirectory(apps/<name>)` to the top-level `CMakeLists.txt` yourself —
 the CLI only scaffolds the directory, it does not edit the top-level CMake.

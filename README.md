@@ -84,6 +84,9 @@ fw new-app my_app
 
 Published app repositories must attach their validated `.uf2` to each release
 as a downloadable release artifact; see [`docs/app-storage.md`](./docs/app-storage.md).
+Apps with public source repositories must also expose an on-device About screen
+with the app version and repository link; holding PAGE for five seconds is the
+recommended convention.
 
 **Status:** every harvested driver group has passed its `hello_*` smoke
 test on a physical board (most recently `hello_ir`'s TX→RX loopback and

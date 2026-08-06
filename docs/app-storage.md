@@ -40,6 +40,14 @@ published app release. A source tag or a short-lived CI artifact alone is not
 enough: testers and users must be able to download that exact release UF2
 without reproducing the embedded toolchain locally.
 
+If the app's source repository is public, the app must also provide an About
+screen that shows the app version and a link to that repository. The About
+screen may be intentionally tucked away so it does not distract from the
+feature UI; the conventional gesture is holding the PAGE button for five
+seconds. Another discoverable gesture or menu entry is acceptable, but the
+version and repository link must be readable on the device without RTT or a
+development host.
+
 ## PSRAM-resident app startup
 
 An app whose executable image lives in PSRAM needs a small **SRAM bootstrap**.
