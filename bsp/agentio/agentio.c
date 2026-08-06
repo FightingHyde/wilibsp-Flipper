@@ -12,15 +12,48 @@
 #include "input/ft6336.h"
 #include "input/uartkbd.h"
 #include "platform/diag.h"
-#include "pico/stdlib.h"    /* __uninitialized_psram, via pico/platform/sections.h */
+#include "platform/psram.h"
+#include "pico/stdlib.h"
 #include "SEGGER_RTT.h"
 
-/* Shadow framebuffer: 480x320 wire-order RGB565 = 307,200 bytes. Placed by the
- * linker in PSRAM — never by casting PSRAM_BASE, which the linker's PSRAM
- * region also starts at. */
-static uint8_t __uninitialized_psram("agentio")
-    s_shadow[(size_t)ST7796_W * ST7796_H * 2];
+/* Shadow framebuffer: 480x320 wire-order RGB565 = 307,200 bytes, reserved at a
+ * FIXED address in the top of PSRAM rather than placed by the linker.
+ *
+ * Why not __uninitialized_psram: that emits a `.psram_noload` input section,
+ * and ld gives every allocated section a load address (LMA) by continuing from
+ * the previous section's. `.psram_load` declares `AT> PSRAM_STORE`;
+ * `.psram_noload` declares nothing, so it inherits whatever the LMA counter
+ * happened to be. In a `no_flash` build the SDK aliases PSRAM_STORE to RAM
+ * (memory_aliases_no_flash.incl: "Can't store in PSRAM"), so that phantom
+ * 300 KB load range runs off the end of SRAM and picotool refuses the UF2:
+ *
+ *     Memory segment 2003fdbc->2008adbc is outside of valid address range
+ *
+ * The segment carries ZERO file bytes -- it is pure metadata -- but picotool
+ * range-checks it anyway. A flash build puts the same phantom range in flash,
+ * where nothing notices. That is why this only ever broke RAM apps, and why
+ * agentio kept having to be switched off in them.
+ *
+ * The shadow needs no linker placement to begin with: agentio_init() zeroes it
+ * and every use goes through a plain pointer. So it is reserved at the TOP of
+ * PSRAM. The linker's PSRAM region grows UP from PSRAM_BASE, so the two meet
+ * only if an app linker-allocates nearly the whole 8 MB -- and agentio_init()
+ * checks __psram_end__ and disables capture rather than silently aliasing.
+ *
+ * This is the bounds-checked exception to AGENTS.md invariant 2's "never cast
+ * PSRAM_BASE": the hazard there is a pointer at the BASE, which is precisely
+ * where the linker starts allocating. */
+#define AGENTIO_SHADOW_SIZE ((size_t)ST7796_W * ST7796_H * 2)
+#define AGENTIO_SHADOW_ADDR \
+    ((uintptr_t)PSRAM_BASE + (uintptr_t)PICO_PSRAM_SIZE_BYTES - AGENTIO_SHADOW_SIZE)
+
+static uint8_t *const s_shadow = (uint8_t *)AGENTIO_SHADOW_ADDR;
 static agentio_shadow_t s_shadow_state;
+/* False when linker-placed PSRAM objects reach into the shadow window. */
+static bool s_shadow_ok;
+
+/* End of everything the linker placed in PSRAM (sections_psram.incl). */
+extern char __psram_end__;
 
 /* RTT channel 1. The up buffer blocks when full: a capture must not silently
  * drop pixels, and blocking the app loop during capture is the accepted trade
@@ -349,8 +382,14 @@ static void dispatch(char *line)
 
 void agentio_init(void)
 {
-    memset(s_shadow, 0, sizeof s_shadow);
-    agentio_shadow_init(&s_shadow_state, s_shadow, ST7796_W, ST7796_H);
+    /* Refuse to alias: the shadow window is only safe while the linker's PSRAM
+     * allocations stop below it. Requires an app to place ~7.7 MB there, but
+     * silently corrupting its buffers would be a miserable thing to debug. */
+    s_shadow_ok = (uintptr_t)&__psram_end__ <= AGENTIO_SHADOW_ADDR;
+    if (s_shadow_ok) {
+        memset(s_shadow, 0, AGENTIO_SHADOW_SIZE);
+        agentio_shadow_init(&s_shadow_state, s_shadow, ST7796_W, ST7796_H);
+    }
     s_line_len = 0;
     s_kb = 0;
 
@@ -360,8 +399,15 @@ void agentio_init(void)
     SEGGER_RTT_ConfigDownBuffer(AGENTIO_RTT_CHANNEL, "agentio",
                                 s_down_buf, sizeof s_down_buf,
                                 SEGGER_RTT_MODE_NO_BLOCK_SKIP);
-    DIAG("agentio: up on RTT ch%u, shadow %u bytes\n",
-         (unsigned)AGENTIO_RTT_CHANNEL, (unsigned)sizeof s_shadow);
+    if (s_shadow_ok)
+        DIAG("agentio: up on RTT ch%u, shadow %u bytes at %x\n",
+             (unsigned)AGENTIO_RTT_CHANNEL, (unsigned)AGENTIO_SHADOW_SIZE,
+             (unsigned)AGENTIO_SHADOW_ADDR);
+    else
+        DIAG("agentio: up on RTT ch%u, CAPTURE DISABLED - linker PSRAM ends at "
+             "%x, inside the shadow window at %x\n",
+             (unsigned)AGENTIO_RTT_CHANNEL, (unsigned)(uintptr_t)&__psram_end__,
+             (unsigned)AGENTIO_SHADOW_ADDR);
 }
 
 void agentio_bind_keyboard(fw2kb_t *kb)
@@ -423,17 +469,20 @@ void agentio_task(void)
 
 void agentio_shadow_note_window(int x0, int y0, int x1, int y1)
 {
+    if (!s_shadow_ok) return;
     agentio_shadow_set_window(&s_shadow_state, x0, y0, x1, y1);
 }
 
 void agentio_shadow_note_pixels(const uint8_t *bytes, size_t n)
 {
+    if (!s_shadow_ok) return;
     agentio_shadow_write(&s_shadow_state, bytes, n);
 }
 
 const uint8_t *agentio_shadow_fb(void)
 {
-    return s_shadow;
+    /* NULL when disabled, per the contract in agentio.h. */
+    return s_shadow_ok ? s_shadow : 0;
 }
 
 #endif /* FW2_AGENTIO */
