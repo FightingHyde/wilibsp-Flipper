@@ -50,6 +50,33 @@ def test_install_app_copies_to_apps_ejects_and_returns_sd(tmp_path, monkeypatch)
     assert (volume / "apps" / "mesh.uf2").read_bytes() == app_uf2()
     assert calls == [("COM7", True), ("eject", volume), ("COM7", False)]
 
+def test_install_app_copies_to_nested_apps_folder(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    volume = tmp_path / "card"
+    volume.mkdir()
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setattr(fw, "_mounted_volumes", set)
+    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
+    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: None)
+    monkeypatch.setattr(fw, "_eject_volume", lambda path: None)
+
+    fw.install_app(source, folder="beta/radio")
+
+    assert (volume / "apps" / "beta" / "radio" / "mesh.uf2").read_bytes() == app_uf2()
+
+def test_install_app_rejects_escaping_or_ambiguous_subfolders_before_hardware(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    monkeypatch.setattr(fw, "_fwfinder_main_port",
+                        lambda serial: (_ for _ in ()).throw(AssertionError("hardware touched")))
+    for folder in ("../outside", "/outside", "team//app", "team\\app"):
+        try:
+            fw.install_app(source, folder=folder)
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+
 def test_install_app_returns_sd_when_no_volume_ever_mounted(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"
     source.write_bytes(app_uf2())

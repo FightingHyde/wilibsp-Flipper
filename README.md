@@ -43,6 +43,7 @@ fw build            # configure + build apps/hello_display for the RP2350B targe
 fw flash            # program it over the debug probe (OpenOCD)
 fw rtt              # stream live SEGGER RTT diagnostics
 fw install-app app.uf2  # copy a loadable app to SD:/apps and return the card to MAIN
+fw install-app app.uf2 --folder beta/radio  # install to SD:/apps/beta/radio
 ```
 
 (`tools/fw` is the POSIX launcher, `tools/fw.cmd` the Windows one; both just
@@ -80,6 +81,9 @@ Scaffold a new app from the template:
 fw new-app my_app
 # then add `add_subdirectory(apps/my_app)` to the top-level CMakeLists.txt
 ```
+
+Published app repositories must attach their validated `.uf2` to each release
+as a downloadable release artifact; see [`docs/app-storage.md`](./docs/app-storage.md).
 
 **Status:** every harvested driver group has passed its `hello_*` smoke
 test on a physical board (most recently `hello_ir`'s TX→RX loopback and

@@ -7,6 +7,16 @@ connected development machine with:
 fw install-app build/apps/my_app/my_app.uf2
 ```
 
+Organize larger collections with a relative subfolder under `/apps`:
+
+```bash
+fw install-app my_app.uf2 --folder beta/radio
+```
+
+This installs `/apps/beta/radio/my_app.uf2`. The command creates missing
+directories and rejects absolute paths, backslashes, empty components, and
+`.`/`..` components before it touches the device.
+
 The command finds MAIN with fwFinder, asks MAIN to hand the SD card to the USB
 reader, waits for the drive to mount, copies the UF2 into `/apps/`, safely
 unmounts it, and returns the card to MAIN. Use `--device SERIAL` when more than
@@ -21,6 +31,14 @@ anything targeting QSPI flash. Loadable DISPLAY apps must target SRAM
 This prevents an app from replacing the stock DISPLAY firmware. DISPLAY's
 recovery loader itself is immutable OTP code, not a flash-resident region;
 firmware replacement is an explicit maintenance workflow, not app installation.
+
+## Publishing apps
+
+The loadable `.uf2` is part of the FreeWili app contract. App repositories
+must attach the validated UF2 as a downloadable release artifact for every
+published app release. A source tag or a short-lived CI artifact alone is not
+enough: testers and users must be able to download that exact release UF2
+without reproducing the embedded toolchain locally.
 
 ## PSRAM-resident app startup
 

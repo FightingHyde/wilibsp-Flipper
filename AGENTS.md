@@ -58,7 +58,7 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
-| `fw install-app <uf2>` | Find MAIN with fwFinder, mount its SD reader on the PC, copy the UF2 to `/apps/`, safely unmount, and return the SD to MAIN       |
+| `fw install-app <uf2>` | Find MAIN with fwFinder, mount its SD reader on the PC, copy the UF2 to `/apps/` (or `--folder path` beneath it), safely unmount, and return the SD to MAIN |
 | `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel (verified on hardware 2026-07-26) |
 | `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold) |
 | `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch)              |
@@ -80,6 +80,11 @@ QSPI flash (`0x10000000..0x11000000`). `fw install-app` checks every block and
 fails before mounting the SD if the file is malformed, mixed-target, or touches
 flash. The DISPLAY recovery loader is fused in OTP; a write at flash base
 replaces the stock DISPLAY firmware, not the loader.
+
+The UF2 is a required distribution artifact of the app contract. Every
+published app release must attach its validated `.uf2` as a downloadable
+release artifact in the app's repository; a source tag or ephemeral CI
+artifact by itself is insufficient.
 
 After `fw new-app <name>` you must add
 `add_subdirectory(apps/<name>)` to the top-level `CMakeLists.txt` yourself —

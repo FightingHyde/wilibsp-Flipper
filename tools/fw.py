@@ -182,12 +182,25 @@ def _eject_volume(volume):
                         subprocess.check_output(["findmnt", "-n", "-o", "SOURCE", str(volume)], text=True).strip()],
                        check=True)
 
-def install_app(uf2, serial_number=None, timeout=25, port=None):
+def _app_subfolder(folder):
+    """Return a safe relative /apps subfolder as POSIX path components."""
+    if folder in (None, "", "."):
+        return ()
+    if "\\" in folder or folder.startswith("/"):
+        raise ValueError("app folder must be relative to /apps and use '/' separators")
+    parts = folder.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError("app folder must not contain empty, '.' or '..' components")
+    return tuple(parts)
+
+
+def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
     """Hand the SD to the PC, atomically copy UF2 into /apps, eject, hand it back."""
     source = pathlib.Path(uf2).resolve()
     if source.suffix.lower() != ".uf2" or not source.is_file():
         raise ValueError(f"expected an existing .uf2 file, got {uf2!r}")
     target = check_app_uf2(source)
+    folder_parts = _app_subfolder(folder)
     print(f"verified {target} app: no QSPI-flash payloads")
     port = port or _fwfinder_main_port(serial_number)
     baseline = _mounted_volumes()
@@ -199,7 +212,9 @@ def install_app(uf2, serial_number=None, timeout=25, port=None):
         pc_selected = True
         volume = _wait_for_sd(baseline, timeout)
         apps = volume / "apps"
-        apps.mkdir(exist_ok=True)
+        for part in folder_parts:
+            apps /= part
+        apps.mkdir(parents=True, exist_ok=True)
         temporary = apps / (source.name + ".tmp")
         shutil.copyfile(source, temporary)
         # Windows' CRT rejects fsync() on a read-only descriptor. Open for
@@ -641,6 +656,7 @@ def main(argv=None):
     sp = sub.add_parser("new-app"); sp.add_argument("name")
     sp = sub.add_parser("install-app")
     sp.add_argument("uf2", help="app UF2 to copy into /apps on the device SD card")
+    sp.add_argument("--folder", help="relative subfolder under /apps (for example beta/team)")
     sp.add_argument("--device", help="fwFinder device serial (required when multiple devices are connected)")
     sp.add_argument("--port", help="explicit MAIN serial port if fwFinder cannot identify legacy hardware")
     sp.add_argument("--timeout", type=float, default=25,
@@ -684,7 +700,7 @@ def main(argv=None):
     elif a.cmd == "new-app":
         print("created", new_app(a.name))
     elif a.cmd == "install-app":
-        install_app(a.uf2, a.device, a.timeout, a.port)
+        install_app(a.uf2, a.device, a.timeout, a.port, a.folder)
     elif a.cmd == "screenshot":
         crop = tuple(int(v) for v in a.crop.split(",")) if a.crop else None
         if crop is not None and len(crop) != 4:
