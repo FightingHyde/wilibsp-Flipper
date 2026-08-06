@@ -176,9 +176,9 @@ void usb_msc_task(void) {
             // Hub passthrough (Task 10): find a drive on a hub port,
             // reset it, enumerate it at address 2. Polled non-blockingly
             // from ST_HUB_WAIT below -- don't block the caller here (this
-            // stalled the whole app, e.g. wilicankit's LVGL+touch loop, for
-            // up to 5s at a time whenever a hub was attached with nothing
-            // plugged into it).
+            // stalled the whole app, e.g. an LVGL+touch loop, for up to 5s
+            // at a time whenever a hub was attached with nothing plugged
+            // into it).
             if (usb_hub_attach(&dev) != HCD_OK) {
                 printf("msc: hub attach failed\n");
                 enter_failed();

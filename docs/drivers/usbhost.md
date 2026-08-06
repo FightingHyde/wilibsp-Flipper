@@ -27,7 +27,7 @@ on WiliIR 2026-07-05/06 and again here via `apps/hello_usbdrive`.
   hub passthrough is the *normal* path, not an edge case), a blocking
   multi-second wait here previously stalled the whole app's main loop any
   time nothing was plugged into the external USB-A port — fatal for apps
-  polling touch/LVGL in the same loop (see `apps/wilicankit`). A second hub
+  polling touch/LVGL in the same loop. A second hub
   tier (a hub plugged into the CH334F) is out of scope — not implemented, not
   tested.
 - **`usb_msc`** — BOT transport + the hotplug/enumeration state machine
