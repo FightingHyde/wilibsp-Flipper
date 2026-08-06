@@ -193,6 +193,54 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
     region. Verify symbol addresses plus every UF2 target block, then verify an
     observable runtime milestone on hardware. See `docs/app-storage.md`.
 
+
+## The FW2App contract
+
+Firmware built by this BSP must be identifiable, versioned, self-describing
+and recoverable without a human touching the board. 
+
+**1. Every app declares `VERSION` and `DESCRIPTION`.**
+
+```cmake
+fwog_display_app(bench_display
+    VERSION 001
+    DESCRIPTION "Bench console for the display drivers: charger, RTC, ...")
+```
+
+`VERSION` is exactly three digits, bumped by hand. `DESCRIPTION` is required
+and has no default — it is what the App Explorer shows a human choosing what
+to flash. `NAME` defaults to the target minus its `_display`/`_main` suffix.
+Missing or malformed is a configure error.
+
+**2. Holding the home button for 5 seconds must reset the deivce
+
+WILiBSP apps are designed to run in ram and must have a way to do a software 
+reset inorder to return back into the main flash app. You MUST not reset to BOOTSEL as
+that will prevent lockout.
+
+**3. Every image carries a `fw2app_uf2_info_t` record.**
+`bsp/common/uf2_info.h` — an 8-byte magic (`FWGOINFO`), name, description,
+version, build, CRC. `tools/check_uf2_info.py` runs POST_BUILD and fails the
+build if it is missing or wrong.
+
+Three things a reader needs to know about it:
+
+- **A main UF2 contains TWO records** — its own (`cpu=main`) and the display
+  image it embeds (`cpu=display`). Consumers key on `cpu`; never assume one.
+- **Display applications carry no `build`/`build_ts`, deliberately.**
+  `display_update.c` skips the transfer by comparing the image CRC32, so a
+  build-varying byte would force a display reflash on every commit. The
+  bootloader *is* exempt: it is UF2-flashed with no CRC-skip path.
+- **Nothing in the firmware references the record**, so it is held by
+  `-Wl,--undefined=fwog_uf2_info`. `__attribute__((retain))` is ignored by
+  this toolchain, and the SDK's KEEP'd `.binary_info.keep.*` section is wrong
+  here — picotool walks that region as an array of pointers.
+
+
+**Read this limit — it is the same limit rule 2 states.** The link error
+proves a policy was *declared*, not that `board_watchdog_kick()` is reached
+on every path. No linker can see that.
+
 ## Peripheral power zones — request rails BEFORE touching hardware
 
 The board's power sequencer boots with most peripheral rails **OFF**
