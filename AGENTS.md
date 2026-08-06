@@ -393,20 +393,19 @@ code written from scratch in this repo, not to harvested drivers.
 - `build/`, `build-tests/`, `*.uf2`, `*.elf`, `*.bin`, `__pycache__/`,
   `.venv/` are git-ignored — don't commit them.
 
-## Public documentation boundary
+## Documentation maintenance
 
-This repository is public and customer-facing. Documentation must stand on
-its own using observable behavior, public APIs, and public hardware names.
-Never cite a private repository, local source checkout, private source path,
-internal class or symbol, or private commit history. Translate upstream
-implementation findings into product facts; keep only the evidence that can
-be independently understood from this repository.
+Documentation must stand on its own using observable behavior, supported APIs,
+and hardware names. Do not cite another repository, a local checkout path,
+implementation-only class or symbol names, or commit history. Translate source
+investigation into product behavior that can be understood and verified from
+this repository.
 
 When importing or refreshing information from the stock firmware:
 
 1. Run `git fetch --prune` and report whether this branch is behind before
    calling the BSP current. Do not pull across unrelated local changes.
-2. Update the relevant public driver or hardware page, not an internal-source
+2. Update the relevant driver or hardware page without leaving a source-tree
    breadcrumb.
 3. Run `python -m pytest tests/test_no_private_refs.py` and `git diff --check`.
 4. Preserve honest verification language: a behavior without a local findings
