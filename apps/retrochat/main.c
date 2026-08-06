@@ -55,7 +55,7 @@ int main(void) {
             } else if (time_reached(no_frames)) {
                 break;
             }
-            sleep_ms(25);
+            fw2_app_recovery_sleep_ms(25);
         }
         DIAG("picpwr: audio codec's rail %s\n",
              (picpwr_rails(&rails) && (rails & picpwr_zone_bit(PICPWR_ZONE_AUDIO)))
@@ -161,6 +161,6 @@ int main(void) {
                  audio_dbg_peak_max(), uartkbd_frames(), uartkbd_errors());
             next_stats = make_timeout_time_ms(500);
         }
-        sleep_ms(10);
+        fw2_app_recovery_sleep_ms(10);
     }
 }

@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.13)
 project(wilibsp_tests C)
 set(CMAKE_C_STANDARD 11)
 enable_testing()
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(NAME python_app_contract
+    COMMAND ${Python3_EXECUTABLE} -m pytest -q
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_app_contract.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/../tools/tests/test_uf2_info.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/../tools/tests/test_make_app_uf2.py)
 
 # Standalone tree: no Pico SDK, no pico_sdk_init(). Pure-logic modules from
 # ../bsp are compiled directly against the host C compiler so tests run
@@ -263,6 +270,14 @@ target_include_directories(test_app_recovery PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(test_app_recovery PRIVATE HOST_TEST)
 add_test(NAME app_recovery COMMAND test_app_recovery)
+
+add_executable(test_uf2_info
+    test_uf2_info.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp/common/uf2_info.c)
+target_include_directories(test_uf2_info PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../bsp
+    ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME uf2_info COMMAND test_uf2_info)
 
 add_executable(test_agentio_rle
     test_agentio_rle.c

@@ -19,6 +19,7 @@ static void count_ir_files(void) {
     unsigned n = 0;
     if (f_opendir(&dir, "0:/") != FR_OK) return;
     while (f_readdir(&dir, &fi) == FR_OK && fi.fname[0]) {
+        fw2_app_recovery_task();
         size_t len = strlen(fi.fname);
         if (!(fi.fattrib & AM_DIR) && len > 3 &&
             !strcasecmp(fi.fname + len - 3, ".ir")) n++;
@@ -41,6 +42,6 @@ int main(void) {
             was_mounted = m;
             if (m) count_ir_files();
         }
-        sleep_ms(2);
+        fw2_app_recovery_sleep_ms(2);
     }
 }

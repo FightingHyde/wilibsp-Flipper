@@ -1,5 +1,6 @@
 /* picpwr — see picpwr.h. */
 #include "picpwr.h"
+#include "app_recovery.h"
 #include "uartkbd.h"
 #include "pico/stdlib.h"
 
@@ -35,7 +36,7 @@ static bool rails_stable(uint32_t *rails_out)
     absolute_time_t until = make_timeout_time_ms(2500);
     while (uartkbd_frames() == seen) {           /* wait for a fresh frame */
         if (time_reached(until)) return false;
-        uartkbd_task();
+        fw2_app_recovery_task();
         sleep_ms(10);
     }
     if (!picpwr_rails(&b)) return false;

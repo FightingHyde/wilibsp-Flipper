@@ -29,7 +29,8 @@ change, the hardware SPI peripheral has no valid clock and the LCD shows
 nothing. The 1.25 V vreg bump exists because 250 MHz at the default vreg was
 marginal during heavy ST7796 bring-up in the source repo.
 
-Every app is built `pico_set_binary_type(<app> copy_to_ram)` (see
+Every app is built through `fw2_display_app()`, which selects the SDK's
+`no_flash` binary type (see
 `apps/template/CMakeLists.txt`, `apps/hello_display/CMakeLists.txt`): the
 whole binary (code + data + bss) runs from the RP2350's 512 KB SRAM, not
 flash XIP. This is what makes running at 250 MHz safe without flash-timing
@@ -483,7 +484,7 @@ real reading of the SDK source to establish:
   easy way to "fix" the timing and have nothing change.
 - **`psram_reinitialize()` is documented unsafe while executing from flash or
   PSRAM**, or with IRQ handlers/vector table in flash or PSRAM. It is safe in
-  `board_init_clk()` only because every app is `copy_to_ram` (invariant 2) and
+  `board_init_clk()` only because every app executes from RAM (invariant 2) and
   core1 has not started yet. Keep that in mind if a future app is ever linked
   to run from flash.
 - **The linker's PSRAM region ORIGIN is `0x11000000` — the same address as

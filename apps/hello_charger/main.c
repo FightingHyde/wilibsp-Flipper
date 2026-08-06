@@ -217,6 +217,6 @@ int main(void)
                  (unsigned)s.flags, (unsigned)s.buttons);
             next_log = now + 1000000;
         }
-        sleep_ms(2);
+        fw2_app_recovery_sleep_ms(2);
     }
 }

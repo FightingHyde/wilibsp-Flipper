@@ -63,16 +63,18 @@ int main(void) {
         { VREF_3V3,        "3V3      " },   /* final state for the toggle test */
     };
     for (unsigned i = 0; i < count_of(sweep); i++) {
+        fw2_app_recovery_task();
         ioexp_vref(sweep[i].sel);
-        sleep_ms(200);   /* let the rail settle before measuring */
+        fw2_app_recovery_sleep_ms(200); /* let the rail settle before measuring */
         DIAG("hello_vref: VREF_%s -> VIO %u mV, Vout %u mV\n",
              sweep[i].name, rail_mv(ADC_IN_VIO), rail_mv(ADC_IN_VOUT));
     }
 
     static ow_device dev;   /* ~37 KB of buffers - far too big for the 2 KB stack */
     while (ow_open_fwgui(&dev) != OW_OK) {
+        fw2_app_recovery_task();
         DIAG("hello_vref: FwGUI link open failed (is the main CPU running stock fw?), retry in 1 s\n");
-        sleep_ms(1000);
+        fw2_app_recovery_sleep_ms(1000);
     }
     DIAG("hello_vref: link up, toggling main-CPU GPIO %d every %d ms\n",
          TOGGLE_PIN, TOGGLE_PERIOD_MS);
@@ -94,6 +96,6 @@ int main(void) {
                 DIAG("hello_vref: GPIO %d = %d (bitfield 0x%x, VIO %u mV)\n",
                      TOGGLE_PIN, (gpios >> TOGGLE_PIN) & 1u, gpios, rail_mv(ADC_IN_VIO));
         }
-        sleep_ms(TOGGLE_PERIOD_MS);
+        fw2_app_recovery_sleep_ms(TOGGLE_PERIOD_MS);
     }
 }

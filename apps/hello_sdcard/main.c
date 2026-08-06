@@ -26,7 +26,7 @@ static void print_entry(const char* name, bool is_dir, uint32_t size, void* user
 
 /* ~37 KB of link buffers — far too big for the 2 KB stack. */
 static ow_device dev;
-/* Read-back scratch. Every app here is copy_to_ram, so keep it modest. */
+/* Read-back scratch. Ordinary apps are loaded directly into SRAM, so keep it modest. */
 static char readbuf[1024];
 
 int main(void) {
@@ -37,27 +37,33 @@ int main(void) {
      * currently fail; the loop future-proofs a smarter open. A missing bridge
      * surfaces below instead, as SD timeouts. */
     while (ow_open_fwgui(&dev) != OW_OK) {
+        fw2_app_recovery_task();
         DIAG("hello_sdcard: FwGUI link open failed (is the main CPU running stock fw?), retry in 1 s\n");
-        sleep_ms(1000);
+        fw2_app_recovery_sleep_ms(1000);
     }
     DIAG("hello_sdcard: link up, SD client armed\n");
 
     /* Repeating mkdir is fine — an existing directory reports a clean error. */
     ow_sd_mkdir(&dev, LOG_DIR);
+    fw2_app_recovery_task();
 
     for (int i = 0; i < 10; i++) {
+        fw2_app_recovery_task();
         char line[64];
         int n = snprintf(line, sizeof line, "tick %d\n", i);
         ow_sd_file f;
         if (ow_sd_open(&dev, &f, LOG_PATH, OW_SD_APPEND) != OW_OK) {
             DIAG("hello_sdcard: open failed (sdfs %d)\n", (int)ow_sd_last_error());
         } else {
+            fw2_app_recovery_task();
             ow_sd_write(&f, line, (size_t)n);
+            fw2_app_recovery_task();
             /* Writes are fire-and-forget; close is where a dropped chunk shows up. */
             if (ow_sd_close(&f) != OW_OK)
                 DIAG("hello_sdcard: close failed (sdfs %d)\n", (int)ow_sd_last_error());
+            fw2_app_recovery_task();
         }
-        sleep_ms(1000);
+        fw2_app_recovery_sleep_ms(1000);
     }
 
     bool is_dir = false;
@@ -66,6 +72,7 @@ int main(void) {
         DIAG("hello_sdcard: %s is %lu bytes\n", LOG_PATH, (unsigned long)size);
     else
         DIAG("hello_sdcard: stat failed (sdfs %d)\n", (int)ow_sd_last_error());
+    fw2_app_recovery_task();
 
     size_t got = 0;
     if (ow_sd_get_mem(&dev, LOG_PATH, readbuf, sizeof readbuf - 1, &got) == OW_OK) {
@@ -74,14 +81,16 @@ int main(void) {
     } else {
         DIAG("hello_sdcard: read failed (sdfs %d)\n", (int)ow_sd_last_error());
     }
+    fw2_app_recovery_task();
 
     DIAG("hello_sdcard: %s:\n", LOG_DIR);
     if (ow_sd_list(&dev, LOG_DIR, print_entry, 0) != OW_OK)
         DIAG("hello_sdcard: list failed (sdfs %d)\n", (int)ow_sd_last_error());
+    fw2_app_recovery_task();
 
     DIAG("hello_sdcard: done\n");
     for (;;) {
         fw2_app_recovery_task();
-        sleep_ms(100);
+        fw2_app_recovery_sleep_ms(100);
     }
 }

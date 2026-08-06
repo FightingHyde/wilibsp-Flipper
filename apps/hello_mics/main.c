@@ -11,6 +11,17 @@
 
 static int16_t s_pcm[PDM_NUM_MICS][BLOCK];
 
+static void capture_block_recoverable(void) {
+    unsigned got = 0;
+    while (got < BLOCK) {
+        int16_t* dst[PDM_NUM_MICS];
+        for (int m = 0; m < PDM_NUM_MICS; m++) dst[m] = s_pcm[m] + got;
+        got += pdm_capture_pull(dst, BLOCK - got);
+        fw2_app_recovery_task();
+        if (got < BLOCK) tight_loop_contents();
+    }
+}
+
 // Integer sqrt (no floats in DIAG, invariant 3; keep the whole path integer).
 static uint32_t isqrt32(uint32_t x) {
     uint32_t r = 0, b = 1u << 30;
@@ -35,8 +46,7 @@ int main(void) {
     unsigned blocks = 0;
     while (1) {
         fw2_app_recovery_task();
-        int16_t* dst[PDM_NUM_MICS] = { s_pcm[0], s_pcm[1], s_pcm[2], s_pcm[3] };
-        pdm_capture_block(dst, BLOCK);
+        capture_block_recoverable();
         if (++blocks % 3 != 0) continue;   // print ~3x/s (every 3rd 100 ms block)
 
         for (int m = 0; m < PDM_NUM_MICS; m++) {

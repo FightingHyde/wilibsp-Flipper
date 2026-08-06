@@ -34,12 +34,12 @@ backspace (above). Button state arrives from the FW2 UART keyboard
     #include "fw2.h"
 
     fw2kb_t kb;
-    uartkbd_init();
+    fw2_app_recovery_init();
     fw2kb_init(&kb);
     fw2kb_set_touch_threshold(&kb, 136);
 
     for (;;) {
-        uartkbd_task();                         /* drain UART each loop */
+        fw2_app_recovery_task(); /* drain UART and service HOME recovery */
         uartkbd_event_t bev;
         while (uartkbd_next_event(&bev)) {
             if (!bev.pressed) continue;

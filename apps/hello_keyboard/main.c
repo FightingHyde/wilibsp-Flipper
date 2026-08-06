@@ -234,7 +234,7 @@ int main(void)
                  (unsigned)uartkbd_flags());
             next_link_log = now + 1000000;
         }
-        sleep_ms(2);
+        fw2_app_recovery_sleep_ms(2);
         agentio_task();
     }
 }

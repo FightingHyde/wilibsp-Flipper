@@ -52,7 +52,7 @@ For a PSRAM-resident app:
   limit during the transition.
 
 These requirements apply to apps **executing from PSRAM**, not to ordinary BSP
-apps built with `copy_to_ram`.
+apps linked and loaded directly into SRAM with the `no_flash` binary type.
 
 Before publishing a PSRAM app, make the build verify all of the following:
 

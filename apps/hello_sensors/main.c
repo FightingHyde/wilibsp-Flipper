@@ -53,6 +53,6 @@ int main(void) {
             else DIAG("bmm350:  read FAIL\n");
         }
         DIAG("---\n");
-        sleep_ms(500);
+        fw2_app_recovery_sleep_ms(500);
     }
 }

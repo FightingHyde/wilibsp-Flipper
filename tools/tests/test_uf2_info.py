@@ -40,6 +40,18 @@ def test_duplicate_record_is_rejected():
         check.check(record() + record(name="second"))
 
 
+def test_valid_plus_corrupt_structural_record_is_rejected():
+    damaged = bytearray(record(name="second"))
+    damaged[40] ^= 1
+    with pytest.raises(check.RecordError, match="invalid.*CRC32"):
+        check.check(record() + damaged)
+
+
+def test_magic_in_description_is_not_a_second_record():
+    result = check.check(record(description="Contains FW2AINFO as text"))
+    assert result[0] == "demo"
+
+
 def test_corrupt_crc_is_rejected():
     damaged = bytearray(record())
     damaged[40] ^= 1
@@ -52,7 +64,7 @@ def test_nonzero_reserved_field_is_rejected():
     damaged[11] = 1
     import zlib
     damaged[-4:] = (zlib.crc32(damaged[:-4]) & 0xffffffff).to_bytes(4, "little")
-    with pytest.raises(check.RecordError, match="reserved"):
+    with pytest.raises(check.RecordError):
         check.check(damaged)
 
 

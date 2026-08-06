@@ -27,7 +27,7 @@ Worth knowing before you copy this:
   status.
 - Calls block with a 2 s idle timeout (`ow_sd_set_timeout_ms` to change it).
 - `ow_device` is ~37 KB, so it must be `static` — it will not fit the 2 KB
-  stack. Every app is `copy_to_ram`, so keep read buffers modest or put them
+  stack. Every app executes from SRAM, so keep read buffers modest or put them
   in PSRAM.
 
 Build/flash: `fw build hello_sdcard` / `fw flash hello_sdcard`.

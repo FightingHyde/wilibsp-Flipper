@@ -65,7 +65,7 @@ int main(void) {
     int rstride = hstx_dvi_video_stride();
     int region_h = hstx_dvi_region_h();
     dvi_osd_text_msg(rbase, rstride, VID_W, region_h, VID_H, "FREEWILI 2 DVI");
-    sleep_ms(1500);
+    fw2_app_recovery_sleep_ms(1500);
 
     // Animate a progress bar across the bottom margin so motion proves the
     // scanout is live and reading the framebuffer continuously.
@@ -75,6 +75,6 @@ int main(void) {
         dvi_osd_progress(rbase, rstride, VID_W, region_h, VID_H,
                          t % 101u, 100u, "DVI");
         t++;
-        sleep_ms(50);
+        fw2_app_recovery_sleep_ms(50);
     }
 }

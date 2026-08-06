@@ -10,6 +10,8 @@ BODY = "<8s H B B H H 32s 128s 32s I"
 
 def fixed(value, size, label):
     raw = value.encode("ascii", "strict")
+    if any(byte < 0x20 or byte > 0x7e for byte in raw):
+        raise ValueError("%s must contain printable ASCII only" % label)
     if len(raw) >= size:
         raise SystemExit("%s is too long (maximum %d ASCII bytes)" %
                          (label, size - 1))
@@ -19,6 +21,8 @@ def fixed(value, size, label):
 def build_record(version, name, description, build="", build_ts=0):
     if not 0 <= version <= 999:
         raise ValueError("VERSION must be in 000-999")
+    if not name or not description:
+        raise ValueError("NAME and DESCRIPTION must not be empty")
     body = struct.pack(BODY, MAGIC, 1, 0, 0, version, 0,
                        fixed(name, 32, "NAME"),
                        fixed(description, 128, "DESCRIPTION"),

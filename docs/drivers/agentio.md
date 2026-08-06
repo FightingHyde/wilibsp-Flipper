@@ -46,7 +46,7 @@ is drawn.** It `memset`s the shadow framebuffer to zero, and the shadow only
 records writes issued after that call — anything drawn earlier is erased
 from the shadow (though it still reaches the physical panel), so a capture
 of it comes back black. Call `agentio_init()` immediately after
-`board_init()`/`st7796_init()` (and `uartkbd_init()`/`fw2kb_init()` if you
+`board_init()`/`st7796_init()` (and `fw2_app_recovery_init()`/`fw2kb_init()` if you
 want `TYPE` and button injection), before the first draw call.
 
 `apps/hello_agentio` is the worked example — a known-pattern app whose output
@@ -69,7 +69,7 @@ int main(void)
     // agentio_init() must come before the drawing below — it zeroes the
     // shadow framebuffer, so anything drawn first would be erased from it.
     fw2kb_t kb;
-    uartkbd_init();
+    fw2_app_recovery_init();
     fw2kb_init(&kb);
     agentio_init();
     agentio_bind_keyboard(&kb);
@@ -87,7 +87,7 @@ int main(void)
     DIAG("hello_agentio: pattern drawn, agentio up\n");
 
     for (;;) {
-        uartkbd_task();
+        fw2_app_recovery_task();
 
         uartkbd_event_t bev;
         while (uartkbd_next_event(&bev)) {

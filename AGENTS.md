@@ -118,8 +118,9 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
    both are required — the first only stores values, the second writes the QMI
    register). Without the `clk_peri` re-source the SPI peripheral has no clock
    and the LCD is dead. Every app binary is
-   `pico_set_binary_type(<app> copy_to_ram)`: all code+data+bss live in 512 KB
-   SRAM, so watch the RAM budget — large buffers (framebuffers, capture clips)
+   `fw2_display_app()` selects the SDK's `no_flash` binary type: UF2 payloads,
+   code, data, and bss all live in 512 KB SRAM, so watch the RAM budget —
+   large buffers (framebuffers, capture clips)
    belong in PSRAM (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the
    SDK's `hardware_psram` at boot from `bsp/boards/freewili2.h`). Allocate them
    with `__uninitialized_psram("group")`, **never** by casting `PSRAM_BASE` —
@@ -223,8 +224,8 @@ DISPLAY recovery loader can resume its flash application. Do not call
 **3. Every image carries a `fw2app_uf2_info_t` record.**
 `bsp/common/uf2_info.h` defines a 216-byte record with the 8-byte magic
 `FW2AINFO`, name, description, version, optional build identity, and CRC32.
-`tools/check_uf2_info.py` runs POST_BUILD and fails the
-build if it is missing or wrong.
+`tools/check_app_uf2.py` validates the final UF2 POST_BUILD and fails the
+build if the record is missing, duplicated, or wrong.
 
 Three things a reader needs to know about it:
 

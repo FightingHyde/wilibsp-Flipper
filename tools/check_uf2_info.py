@@ -13,25 +13,18 @@ class RecordError(Exception):
     pass
 
 
-def text(raw, label):
+def text(raw, label, allow_empty=False):
     if b"\0" not in raw:
         raise RecordError("%s is not NUL-terminated" % label)
-    return raw.split(b"\0", 1)[0].decode("ascii", "strict")
+    value = raw.split(b"\0", 1)[0]
+    if not allow_empty and not value:
+        raise RecordError("%s must not be empty" % label)
+    if any(byte < 0x20 or byte > 0x7e for byte in value):
+        raise RecordError("%s must contain printable ASCII only" % label)
+    return value.decode("ascii")
 
 
-def check(blob):
-    offsets = []
-    start = 0
-    while True:
-        offset = blob.find(MAGIC, start)
-        if offset < 0:
-            break
-        offsets.append(offset)
-        start = offset + 1
-    if len(offsets) != 1:
-        raise RecordError("expected exactly one FW2AINFO record, found %d" %
-                          len(offsets))
-    offset = offsets[0]
+def parse_record(blob, offset):
     chunk = blob[offset:offset + SIZE]
     if len(chunk) != SIZE:
         raise RecordError("record at 0x%X is truncated" % offset)
@@ -46,10 +39,36 @@ def check(blob):
         raise RecordError("record CRC32 is wrong")
     name = text(fields[6], "name")
     description = text(fields[7], "description")
-    text(fields[8], "build")
-    if not name or not description:
-        raise RecordError("name and description must not be empty")
+    text(fields[8], "build", allow_empty=True)
     return name, fields[4], description
+
+
+def check(blob):
+    offsets = []
+    start = 0
+    while True:
+        offset = blob.find(MAGIC, start)
+        if offset < 0:
+            break
+        # Text may legitimately contain the magic. Treat it as a record only
+        # when the fixed header identifies this format; once it does, any
+        # malformed record is an error rather than something to ignore.
+        if offset + 16 <= len(blob):
+            header = struct.unpack_from("<8sHBBHH", blob, offset)
+            if header[1] == 1 and header[2] == 0 and header[3] == 0 and header[5] == 0:
+                offsets.append(offset)
+        start = offset + 1
+    valid = []
+    for offset in offsets:
+        try:
+            valid.append(parse_record(blob, offset))
+        except (RecordError, UnicodeDecodeError) as error:
+            raise RecordError("record at 0x%X is invalid: %s" % (offset, error))
+    if len(valid) == 1:
+        return valid[0]
+    if len(valid) > 1:
+        raise RecordError("expected exactly one valid FW2AINFO record, found %d" % len(valid))
+    raise RecordError("expected exactly one valid FW2AINFO record, found 0")
 
 
 def main():

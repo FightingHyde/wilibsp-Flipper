@@ -125,6 +125,11 @@ function(fw2_display_app target)
         message(FATAL_ERROR
             "${target}: DESCRIPTION is required for the App Explorer")
     endif()
+    if(APP_NAME MATCHES "[^ -~]" OR APP_DESCRIPTION MATCHES "[^ -~]")
+        message(FATAL_ERROR
+            "${target}: NAME and DESCRIPTION must contain printable ASCII only")
+    endif()
+
     string(LENGTH "${APP_NAME}" _name_len)
     string(LENGTH "${APP_DESCRIPTION}" _description_len)
     if(_name_len GREATER 31)
@@ -152,10 +157,48 @@ function(fw2_display_app target)
         -Wl,--undefined=fw2app_uf2_info)
 
     # /apps images execute only from SRAM or PSRAM; never target QSPI flash.
-    pico_set_binary_type(${target} copy_to_ram)
-    pico_add_extra_outputs(${target})
+    pico_set_binary_type(${target} no_flash)
+
+    # The SDK's no_flash script aliases PSRAM_STORE to SRAM because a debugger
+    # normally loads the whole ELF before PSRAM exists. DISPLAY's app loader
+    # already owns PSRAM bring-up and loads UF2 blocks directly, so keeping
+    # that alias would give every .psram_uninitialised section an artificial
+    # SRAM physical address and can push the ELF/UF2 beyond SRAM. Override only
+    # the alias include so NOLOAD sections no longer consume an SRAM
+    # load-address range. Ordinary fw2_display_app images must not contain
+    # initialized PSRAM data: the app installer deliberately rejects a UF2
+    # that mixes SRAM and PSRAM payload blocks.
+    set(_link_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}_app_link")
+    file(WRITE "${_link_dir}/memory_aliases_no_flash.incl"
+        "REGION_ALIAS(\"TEXT_STORE\", RAM);\n"
+        "REGION_ALIAS(\"RAM_STORE\", RAM);\n"
+        "REGION_ALIAS(\"PSRAM_STORE\", PSRAM);\n"
+        "REGION_ALIAS(\"XIP_RAM_STORE\", XIP_RAM);\n"
+        "REGION_ALIAS(\"SCRATCH_X_STORE\", SCRATCH_X);\n"
+        "REGION_ALIAS(\"SCRATCH_Y_STORE\", SCRATCH_Y);\n")
+    pico_add_linker_script_override_path(${target} "${_link_dir}"
+        FILES memory_aliases_no_flash.incl)
+    # picotool rejects external-PSRAM ELF segments even when they are NOLOAD.
+    # Generate the conventional diagnostics directly, then create UF2 from
+    # loadable ELF bytes with the app-aware converter.
+    pico_add_dis_output(${target})
+    pico_add_hex_output(${target})
+    pico_add_bin_output(${target})
+    pico_add_map_output(${target})
+    target_compile_definitions(${target} PRIVATE PICO_TARGET_NAME="${target}")
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS
+        "${FW2_TOOLS_DIR}/make_app_uf2.py"
+        "${FW2_TOOLS_DIR}/check_app_uf2.py"
+        "${FW2_TOOLS_DIR}/check_uf2_info.py"
+        "${FW2_TOOLS_DIR}/fw.py")
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND ${Python3_EXECUTABLE} "${FW2_TOOLS_DIR}/check_uf2_info.py"
-                --bin "$<TARGET_FILE_DIR:${target}>/${target}.bin"
+        BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/${target}.uf2"
+        COMMAND ${Python3_EXECUTABLE} "${FW2_TOOLS_DIR}/make_app_uf2.py"
+                "$<TARGET_FILE:${target}>"
+                "$<TARGET_FILE_DIR:${target}>/${target}.uf2"
+        VERBATIM)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} "${FW2_TOOLS_DIR}/check_app_uf2.py"
+                "$<TARGET_FILE_DIR:${target}>/${target}.uf2"
         VERBATIM)
 endfunction()

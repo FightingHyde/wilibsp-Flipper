@@ -37,7 +37,7 @@ int main(void) {
             } else if (time_reached(no_frames)) {
                 break;
             }
-            sleep_ms(25);
+            fw2_app_recovery_sleep_ms(25);
         }
         DIAG("picpwr: sub-GHz radio's rail %s\n",
              (picpwr_rails(&rails) && (rails & picpwr_zone_bit(PICPWR_ZONE_SUBGHZ)))
@@ -92,12 +92,16 @@ int main(void) {
     ook_tx_send(train, 24, true);           // drives GDO0/GPIO32 as SIO output
     cc1101_tx_ook_stop();
     gdo_capture_attach_pin();               // re-route GDO0 to the capture PIO
-    sleep_ms(2);
+    fw2_app_recovery_sleep_ms(2);
     static uint32_t drained[128];
     uint32_t got = gdo_capture_drain(drained, 128);
     DIAG("capture: sent=24 pulses, drained=%u edges (nonzero => PIO2/DMA path live)\n",
          (unsigned)got);
     DIAG("cc1101: smoke test complete\n");
 
-    while (1) tight_loop_contents();
+    while (1) {
+        fw2_app_recovery_task();
+        picpwr_task();
+        tight_loop_contents();
+    }
 }

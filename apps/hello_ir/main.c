@@ -14,7 +14,7 @@ int main(void) {
     fw2_app_recovery_init();
     DIAG("hello_ir: up\n");
     ir_capture_init();               // powers the IR rail (PCAL6524 P2_0)
-    sleep_ms(5);                     // rail settle: no display bring-up here
+    fw2_app_recovery_sleep_ms(5);    // rail settle: no display bring-up here
                                      // to hide behind (see WiliIR harvest.md)
     ir_tx_init(38000);
     ir_capture_start();
@@ -45,6 +45,6 @@ int main(void) {
                      (unsigned long)frame.count, (unsigned long)frame.durs[0],
                      (unsigned long)frame.durs[1], (unsigned long)frame.durs[2]);
         }
-        sleep_ms(2);
+        fw2_app_recovery_sleep_ms(2);
     }
 }

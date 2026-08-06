@@ -1,7 +1,6 @@
 #include "audio_glue.h"
 #include "fw2.h"
 #include "platform/diag.h"
-#include "platform/psram.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include <string.h>
@@ -14,9 +13,11 @@
 #define RC_TX_OUTPUT     CODEC_OUT_SPEAKER  // compile-time output routing knob
 #define RX_CHUNK         512u           // 32 ms per pull @ 16 kHz
 #define TX_TRAIL_SILENCE 4096u          // 256 ms stop slack before the stream wraps
-// PSRAM layout: packed 32-bit I2S TX frames at base, int16 render scratch at +1 MB.
-#define TX_BUF     ((uint32_t *)PSRAM_BASE)
-#define TX_SCRATCH ((int16_t *)(PSRAM_BASE + (1u << 20)))
+// Worst-case frame rendering remains below 131072 samples. Let the linker
+// assign both buffers so they cannot alias AgentIO or another PSRAM owner.
+#define TX_CAPACITY 131072u
+static uint32_t __uninitialized_psram("retrochat_tx") TX_BUF[TX_CAPACITY];
+static int16_t __uninitialized_psram("retrochat_scratch") TX_SCRATCH[TX_CAPACITY];
 
 static volatile bool s_txing;           // core 0 sets, core 1 reads (half duplex)
 static volatile bool s_selftest;
@@ -96,6 +97,10 @@ void audio_tx_text(uint8_t sender, const char *text) {
     unsigned ns = afsk_mod_render(fbytes, nb, TX_SCRATCH);
     unsigned total  = ns + TX_TRAIL_SILENCE;
     unsigned padded = (total + 8191u) & ~8191u;   // stream API: multiple of 8192
+    if (padded > TX_CAPACITY) {
+        DIAG("rc: tx buffer overflow (%u samples)\n", padded);
+        return;
+    }
     for (unsigned i = 0; i < ns; i++) {
         uint16_t s = (uint16_t)TX_SCRATCH[i];
         TX_BUF[i] = ((uint32_t)s << 16) | s;      // same sample on L and R slots

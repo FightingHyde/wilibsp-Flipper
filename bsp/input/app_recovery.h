@@ -22,4 +22,7 @@ void fw2_app_recovery_init(void);
 /* Services keyboard input and normally reboots after HOME is held for 5 s. */
 void fw2_app_recovery_task(void);
 
+/* Sleep while continuing to service HOME recovery. */
+void fw2_app_recovery_sleep_ms(uint32_t duration_ms);
+
 #endif
