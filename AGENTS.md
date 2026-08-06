@@ -1,5 +1,11 @@
 # AGENTS.md — guide for AI agents and contributors
 
+> **Reading requirement:** read this file through EOF before changing code.
+> It is intentionally long. If your tool truncates it, continue from the last
+> line in additional chunks until EOF. Do not treat the first chunk as the
+> complete contract. External app repositories must link here from their own
+> root `AGENTS.md`; see `docs/app-project-setup.md`.
+
 This file orients coding agents (Claude Code, Cursor, Copilot, etc.) and new
 human contributors working in `wilibsp`. It is intentionally dense: the goal
 is that you do **not** have to rediscover the hard-won facts this project was

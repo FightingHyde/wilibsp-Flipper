@@ -82,6 +82,10 @@ fw new-app my_app
 # then add `add_subdirectory(apps/my_app)` to the top-level CMakeLists.txt
 ```
 
+For a standalone app repository, also follow
+[`docs/app-project-setup.md`](./docs/app-project-setup.md): pin this repository
+at `wilibsp/` and expose its complete `AGENTS.md` contract from the app root.
+
 Published app repositories must attach their validated `.uf2` to each release
 as a downloadable release artifact; see [`docs/app-storage.md`](./docs/app-storage.md).
 Apps with public source repositories must also expose an on-device About screen

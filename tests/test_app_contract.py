@@ -20,6 +20,13 @@ def test_every_app_uses_contract_wrapper():
     assert not missing, "apps missing fw2_display_app(): " + ", ".join(missing)
 
 
+def test_metadata_generator_creates_its_clean_build_directory():
+    cmake = (ROOT / "bsp/CMakeLists.txt").read_text(encoding="utf-8")
+    directory = cmake.index('set(_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}_uf2_info")')
+    command = cmake.index("add_custom_command(", directory)
+    assert 'file(MAKE_DIRECTORY "${_dir}")' in cmake[directory:command]
+
+
 def test_every_app_initializes_and_services_recovery():
     missing = []
     for app in app_dirs():

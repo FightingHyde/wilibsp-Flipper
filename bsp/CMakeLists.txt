@@ -146,6 +146,7 @@ function(fw2_display_app target)
     string(REGEX REPLACE "^0+([0-9])" "\\1" _version_number
            "${APP_VERSION}")
     set(_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}_uf2_info")
+    file(MAKE_DIRECTORY "${_dir}")
     add_custom_command(
         OUTPUT "${_dir}/${target}_uf2_info.c"
         COMMAND ${Python3_EXECUTABLE} "${FW2_TOOLS_DIR}/gen_uf2_info.py"

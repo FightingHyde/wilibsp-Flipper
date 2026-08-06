@@ -1,5 +1,10 @@
 # App files on the SD card
 
+For an app maintained outside this monorepo, first follow
+[`app-project-setup.md`](app-project-setup.md). The root agent pointer and
+pinned `wilibsp/` checkout are part of the app contract, not optional
+contributor convenience.
+
 FreeWili loadable apps belong in `/apps/` as `.uf2` files. Install one from a
 connected development machine with:
 
