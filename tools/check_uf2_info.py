@@ -50,22 +50,23 @@ def check(blob):
         offset = blob.find(MAGIC, start)
         if offset < 0:
             break
-        # Text may legitimately contain the magic. Treat it as a record only
-        # when the fixed header identifies this format; once it does, any
-        # malformed record is an error rather than something to ignore.
-        if offset + 16 <= len(blob):
-            header = struct.unpack_from("<8sHBBHH", blob, offset)
-            if header[1] == 1 and header[2] == 0 and header[3] == 0 and header[5] == 0:
-                offsets.append(offset)
+        offsets.append(offset)
         start = offset + 1
     valid = []
+    invalid = []
     for offset in offsets:
         try:
-            valid.append(parse_record(blob, offset))
+            valid.append((offset, parse_record(blob, offset)))
         except (RecordError, UnicodeDecodeError) as error:
+            invalid.append((offset, error))
+    # A valid record may contain the magic in a text field. Ignore only those
+    # nested occurrences; malformed top-level records still fail closed.
+    spans = [(offset, offset + SIZE) for offset, _record in valid]
+    for offset, error in invalid:
+        if not any(start < offset < stop for start, stop in spans):
             raise RecordError("record at 0x%X is invalid: %s" % (offset, error))
     if len(valid) == 1:
-        return valid[0]
+        return valid[0][1]
     if len(valid) > 1:
         raise RecordError("expected exactly one valid FW2AINFO record, found %d" % len(valid))
     raise RecordError("expected exactly one valid FW2AINFO record, found 0")

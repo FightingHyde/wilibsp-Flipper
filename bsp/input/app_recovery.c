@@ -35,6 +35,7 @@ bool fw2_app_recovery_state_update(fw2_app_recovery_state_t *state,
 
 #ifndef HOST_TEST
 static fw2_app_recovery_state_t recovery;
+#define FW2_APP_RECOVERY_FRAME_MAX_AGE_MS 1100u
 
 void fw2_app_recovery_init(void) {
     uartkbd_init();
@@ -43,7 +44,8 @@ void fw2_app_recovery_init(void) {
 
 void fw2_app_recovery_task(void) {
     uartkbd_task();
-    const bool home = (uartkbd_buttons() & (1u << UARTKBD_BTN_HOME)) != 0;
+    const bool home = uartkbd_button_down_fresh(
+        UARTKBD_BTN_HOME, FW2_APP_RECOVERY_FRAME_MAX_AGE_MS);
     if (fw2_app_recovery_state_update(&recovery, home,
                                       (uint32_t)(time_us_64() / 1000u))) {
         DIAG("app: HOME held, rebooting to recovery loader\n");

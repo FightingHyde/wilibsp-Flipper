@@ -42,6 +42,8 @@ static bool     s_synth_pending;
  * and is comfortably shorter than the ~500 ms real-frame cadence. */
 #define UARTKBD_MIDFRAME_TIMEOUT_MS 250u
 static uint32_t s_last_byte_ms;
+static uint32_t s_last_real_frame_ms;
+static bool     s_have_real_frame;
 
 /* Idle (all-released) wire values for the button bytes. Injected buttons are
  * OR'd in by the parser, so this frame never needs per-button bit knowledge. */
@@ -83,6 +85,8 @@ void uartkbd_init(void)
     uartkbd_parse_init(&s_parser);
     s_rd = 0;
     s_last_byte_ms  = to_ms_since_boot(get_absolute_time());
+    s_last_real_frame_ms = 0;
+    s_have_real_frame = false;
     s_synth_pending = false;
 
     uart_init(UARTKBD_UART, UARTKBD_BAUD);
@@ -122,9 +126,14 @@ void uartkbd_task(void)
                              - (uintptr_t)s_ring) & (RING_SIZE - 1);
     uint32_t now = to_ms_since_boot(get_absolute_time());
     if (s_rd != wr) s_last_byte_ms = now;
+    uint32_t frames_before = uartkbd_parse_frames(&s_parser);
     while (s_rd != wr) {
         uartkbd_parse_byte(&s_parser, s_ring[s_rd]);
         s_rd = (s_rd + 1) & (RING_SIZE - 1);
+    }
+    if (uartkbd_parse_frames(&s_parser) != frames_before) {
+        s_last_real_frame_ms = now;
+        s_have_real_frame = true;
     }
 
     /* Mid-frame silence timeout: force the parser back to hunt if it has sat
@@ -148,6 +157,16 @@ uint8_t  uartkbd_flags(void)   { return uartkbd_parse_flags(&s_parser); }
 bool     uartkbd_charger(uartkbd_charger_t *out) { return uartkbd_parse_charger(&s_parser, out); }
 uint32_t uartkbd_frames(void)  { return uartkbd_parse_frames(&s_parser); }
 uint32_t uartkbd_errors(void)  { return uartkbd_parse_errors(&s_parser); }
+
+bool uartkbd_button_down_fresh(uartkbd_btn_t button, uint32_t max_age_ms)
+{
+    uint16_t bit = (uint16_t)(1u << button);
+    if (uartkbd_parse_inject(&s_parser) & bit) return true;
+    if (!s_have_real_frame ||
+        (uint32_t)(to_ms_since_boot(get_absolute_time()) - s_last_real_frame_ms) > max_age_ms)
+        return false;
+    return (uartkbd_parse_buttons(&s_parser) & bit) != 0;
+}
 
 void uartkbd_inject_set(uint16_t mask)
 {

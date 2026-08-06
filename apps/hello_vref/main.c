@@ -20,6 +20,7 @@
 #include "hardware/adc.h"
 #include "onewili.h"
 #include "onewili_fwgui.h"
+#include "input/app_recovery_onewili.h"
 
 #define TOGGLE_PIN       25
 #define TOGGLE_PERIOD_MS 2000
@@ -76,6 +77,7 @@ int main(void) {
         DIAG("hello_vref: FwGUI link open failed (is the main CPU running stock fw?), retry in 1 s\n");
         fw2_app_recovery_sleep_ms(1000);
     }
+    fw2_app_recovery_wrap_onewili(&dev);
     DIAG("hello_vref: link up, toggling main-CPU GPIO %d every %d ms\n",
          TOGGLE_PIN, TOGGLE_PERIOD_MS);
 

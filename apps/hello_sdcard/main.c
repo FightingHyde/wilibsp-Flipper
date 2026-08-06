@@ -14,6 +14,7 @@
 #include "onewili.h"
 #include "onewili_fwgui.h"
 #include "onewili_sd.h"
+#include "input/app_recovery_onewili.h"
 #include <stdio.h>
 
 #define LOG_DIR  "/owlog"
@@ -81,6 +82,9 @@ int main(void) {
     } else {
         DIAG("hello_sdcard: read failed (sdfs %d)\n", (int)ow_sd_last_error());
     }
+    fw2_app_recovery_wrap_onewili(&dev);
+    if (fw2_app_recovery_wrap_sd() != OW_OK)
+        DIAG("hello_sdcard: recovery-aware SD transport setup failed\n");
     fw2_app_recovery_task();
 
     DIAG("hello_sdcard: %s:\n", LOG_DIR);

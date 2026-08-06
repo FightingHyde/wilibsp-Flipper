@@ -12,6 +12,7 @@
 #include "pico/stdlib.h"
 #include "onewili.h"
 #include "onewili_fwgui.h"
+#include "input/app_recovery_onewili.h"
 
 int main(void) {
     board_init();   /* must precede ow_open_fwgui: uart_init reads clk_peri */
@@ -27,6 +28,7 @@ int main(void) {
         DIAG("toggleled: FwGUI link open failed (is the main CPU running stock fw?), retry in 1 s\n");
         fw2_app_recovery_sleep_ms(1000);
     }
+    fw2_app_recovery_wrap_onewili(&dev);
     DIAG("toggleled: link up, toggling main-CPU GPIO 25 every 500 ms\n");
 
     for (;;) {

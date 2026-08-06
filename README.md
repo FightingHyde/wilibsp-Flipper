@@ -29,7 +29,8 @@ orientation doc (command table, hardware invariants, how to add a driver).
 
 Prerequisites: Pico SDK 2.3.0 + ARM GCC toolchain (`~/.pico-sdk`), CMake +
 Ninja, a cmsis-dap debug probe (e.g. Raspberry Pi Debug Probe) + OpenOCD for
-flashing/RTT, Python 3 for the `fw` CLI. Works the same on Windows
+flashing/RTT, Python 3 for the `fw` CLI, and `pytest` for `fw test`
+(`python -m pip install pytest`). Works the same on Windows
 (PowerShell) and Linux.
 
 The SDK and toolchain versions are pinned in `tools/fw.py`

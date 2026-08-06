@@ -86,3 +86,14 @@ def test_apps_do_not_use_blocking_pdm_capture():
         if main.exists() and "pdm_capture_block(" in main.read_text(encoding="utf-8"):
             offenders.append(app.name)
     assert not offenders, "apps must service recovery while capturing PDM: " + ", ".join(offenders)
+
+
+def test_onewili_apps_wrap_synchronous_transports():
+    offenders = []
+    for source_path in APPS.glob("*/*.c"):
+        source = source_path.read_text(encoding="utf-8")
+        if "ow_open_fwgui(" in source and "fw2_app_recovery_wrap_onewili(" not in source:
+            offenders.append(str(source_path.relative_to(APPS)))
+        if "ow_sd_" in source and "fw2_app_recovery_wrap_sd(" not in source:
+            offenders.append(str(source_path.relative_to(APPS)) + " (SD)")
+    assert not offenders, "OneWili calls can starve HOME recovery: " + ", ".join(offenders)

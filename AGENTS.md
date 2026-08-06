@@ -119,9 +119,9 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
    register). Without the `clk_peri` re-source the SPI peripheral has no clock
    and the LCD is dead. Every app binary is
    `fw2_display_app()` selects the SDK's `no_flash` binary type: UF2 payloads,
-   code, data, and bss all live in 512 KB SRAM, so watch the RAM budget —
-   large buffers (framebuffers, capture clips)
-   belong in PSRAM (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the
+   code, initialized data, and ordinary bss live in 512 KB SRAM, so watch the RAM budget —
+   large buffers (framebuffers, capture clips) can be explicitly placed in
+   PSRAM (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the
    SDK's `hardware_psram` at boot from `bsp/boards/freewili2.h`). Allocate them
    with `__uninitialized_psram("group")`, **never** by casting `PSRAM_BASE` —
    the linker's PSRAM region starts at that same address, so a raw pointer
@@ -220,6 +220,15 @@ Call `fw2_app_recovery_init()` immediately after `board_init()`, then call
 error loops. A five-second HOME hold performs a normal watchdog reboot so the
 DISPLAY recovery loader can resume its flash application. Do not call
 `reset_usb_boot()`; entering BOOTSEL defeats unattended recovery.
+
+Synchronous OneWili calls can otherwise hide the keyboard link for their full
+timeout. Apps using `ow_open_fwgui()` must include
+`input/app_recovery_onewili.h` and call
+`fw2_app_recovery_wrap_onewili(&dev)` after opening the link. Apps using
+`ow_sd_*` must also call `fw2_app_recovery_wrap_sd()`. The wrappers split
+transport waits into short polls and service HOME between them. Physical HOME
+state also expires when fresh keyboard status frames stop arriving; explicit
+AgentIO holds remain active until released.
 
 **3. Every image carries a `fw2app_uf2_info_t` record.**
 `bsp/common/uf2_info.h` defines a 216-byte record with the 8-byte magic

@@ -3,6 +3,13 @@ project(wilibsp_tests C)
 set(CMAKE_C_STANDARD 11)
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import pytest"
+    RESULT_VARIABLE FW2_PYTEST_RESULT
+    OUTPUT_QUIET ERROR_QUIET)
+if(NOT FW2_PYTEST_RESULT EQUAL 0)
+    message(FATAL_ERROR "Host tests require pytest: ${Python3_EXECUTABLE} -m pip install pytest")
+endif()
 
 add_test(NAME python_app_contract
     COMMAND ${Python3_EXECUTABLE} -m pytest -q

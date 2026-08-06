@@ -31,11 +31,11 @@ marginal during heavy ST7796 bring-up in the source repo.
 
 Every app is built through `fw2_display_app()`, which selects the SDK's
 `no_flash` binary type (see
-`apps/template/CMakeLists.txt`, `apps/hello_display/CMakeLists.txt`): the
-whole binary (code + data + bss) runs from the RP2350's 512 KB SRAM, not
-flash XIP. This is what makes running at 250 MHz safe without flash-timing
-concerns, but it means SRAM is the tight budget — large buffers (framebuffers,
-capture clips, waterfalls) must go in PSRAM
+`apps/template/CMakeLists.txt`, `apps/hello_display/CMakeLists.txt`): loadable
+code, initialized data, and ordinary bss run from the RP2350's 512 KB SRAM,
+not flash XIP. This makes running at 250 MHz safe without flash-timing
+concerns, but SRAM remains the tight budget — large buffers (framebuffers,
+capture clips, waterfalls) can be explicitly placed in PSRAM
 (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the SDK's
 `hardware_psram` at boot), not on the stack or in a static SRAM array. Place
 them with `__uninitialized_psram("group")`, never by casting `PSRAM_BASE` — see

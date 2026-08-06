@@ -47,6 +47,14 @@ def test_valid_plus_corrupt_structural_record_is_rejected():
         check.check(record() + damaged)
 
 
+@pytest.mark.parametrize("byte", [8, 10, 11, 14])
+def test_valid_plus_malformed_header_record_is_rejected(byte):
+    damaged = bytearray(record(name="second"))
+    damaged[byte] ^= 1
+    with pytest.raises(check.RecordError, match="invalid"):
+        check.check(record() + damaged)
+
+
 def test_magic_in_description_is_not_a_second_record():
     result = check.check(record(description="Contains FW2AINFO as text"))
     assert result[0] == "demo"

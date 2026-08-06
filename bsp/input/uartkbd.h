@@ -19,6 +19,10 @@ bool     uartkbd_charger(uartkbd_charger_t *out);
 uint32_t uartkbd_frames(void);
 uint32_t uartkbd_errors(void);
 
+/* True only while a fresh physical frame or an explicit AgentIO injection
+ * says the button is down. Prevents a disconnected link from latching HOME. */
+bool uartkbd_button_down_fresh(uartkbd_btn_t button, uint32_t max_age_ms);
+
 /* Copy of the last valid status frame's 20-byte payload (false until one
  * has arrived). Rail state decodes from it via picpwr_rails_decode(). */
 bool     uartkbd_status_raw(uint8_t out[20]);
