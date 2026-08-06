@@ -221,6 +221,12 @@ is a WS2812 timing/startup quirk on this board.
 loop; the symptom was originally seen because an earlier version showed the LEDs
 once during setup and then sat in a touch-only loop that never refreshed them.
 
+WS2812 pixels also retain their last latched colors when the display CPU resets
+into another RAM app. `board_init()` therefore sends two all-off frames during
+startup. Its one-shot helper then disables and unclaims the temporary `pio1`
+state machine and removes the PIO program; it does not request the RGB power
+zone. Apps remain free to use `pio1` for the LEDs or PDM microphones afterward.
+
 ## Host tests are a standalone CMake project
 
 `tests/` is configured and built as its **own** CMake project (no Pico SDK,

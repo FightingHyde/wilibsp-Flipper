@@ -78,7 +78,8 @@
 #define BOARD_SYS_CLOCK_KHZ 250000
 
 // Full board bring-up at the DEFAULT clock (BOARD_SYS_CLOCK_KHZ = 250 MHz): vreg
-// 1.25 V, clk_peri re-source, SPI1 bus, park CC1101 CS, backlight off, I2C1
+// 1.25 V, clk_peri re-source, RGB LEDs off without retaining PIO resources,
+// SPI1 bus, park CC1101 CS, backlight off, I2C1
 // @ 400 kHz, ioexp_init.
 void board_init(void);
 
@@ -91,5 +92,9 @@ void board_backlight_set(uint8_t level);
 
 // I2C1 @ 400 kHz on GPIO 26 (SDA) / 27 (SCL). Called from board_init_clk().
 void board_i2c1_init(void);
+
+// Recover a timed-out/wedged I2C1 bus, then restore the controller and pins.
+// Drivers may call this after repeated bounded-transfer failures.
+void board_i2c1_recover(void);
 
 #endif

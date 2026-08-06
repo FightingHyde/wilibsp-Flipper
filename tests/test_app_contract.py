@@ -121,3 +121,32 @@ def test_lcd_apps_establish_surface_before_backlight():
         if clear_at < 0 or light_at < 0 or clear_at > light_at:
             offenders.append(str(source_path.relative_to(APPS)))
     assert not offenders, "LCD apps expose inherited panel pixels: " + ", ".join(offenders)
+
+
+def test_board_startup_clears_persistent_leds_without_power_request():
+    board = (ROOT / "bsp/platform/board.c").read_text(encoding="utf-8")
+    driver = (ROOT / "bsp/leds/ws2812_driver.c").read_text(encoding="utf-8")
+    assert "ws2812_clear_once(pio1, PIN_LED_DATA)" in board
+    helper = driver[driver.index("void ws2812_clear_once("):]
+    assert helper.count("temporary_zero_frame(pio, sm)") >= 2
+    assert "pio_remove_program(" in helper
+    assert "pio_sm_unclaim(" in helper
+    assert "picpwr" not in helper
+
+
+def test_declared_power_zones_are_serviced_and_requested_before_use():
+    """A declared keep-awake request must be maintained and precede init."""
+    offenders = []
+    for source_path in APPS.glob("*/main.c"):
+        source = source_path.read_text(encoding="utf-8")
+        request_at = source.find("picpwr_keep_awake(")
+        if request_at < 0:
+            continue
+        if "picpwr_task()" not in source:
+            offenders.append(source_path.parent.name + ": not serviced")
+        peripheral_inits = [source.find(token) for token in (
+            "codec_nau88c10_init()", "cc1101_init()", "ws2812_init(")]
+        peripheral_inits = [at for at in peripheral_inits if at >= 0]
+        if peripheral_inits and request_at > min(peripheral_inits):
+            offenders.append(source_path.parent.name + ": request follows init")
+    assert not offenders, "invalid power-zone lifecycle: " + ", ".join(offenders)

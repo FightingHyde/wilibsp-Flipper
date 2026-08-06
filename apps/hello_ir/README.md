@@ -10,6 +10,7 @@ reports the same frame back over RTT — a zero-equipment TX->RX loopback
     fw flash hello_ir
     fw rtt
 
-Pass criteria: `tx: sent` alternating with `rx: ... NEC A:0x4 C:0x8` every
+The LCD reports transmit and decode activity. Detailed RTT pass criteria are
+`tx: sent` alternating with `rx: ... NEC A:0x4 C:0x8` every
 5 s, a real remote press prints its own decode line, and `ovr` (capture
 overrun count) stays 0 throughout.

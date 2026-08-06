@@ -29,6 +29,7 @@ int main(void) {
     // periodically so all 16 LEDs stay lit. See docs/drivers/leds.md.
     uint16_t x, y;
     absolute_time_t next_led = get_absolute_time();
+    absolute_time_t next_touch_health = make_timeout_time_ms(1000);
     for (;;) {
         fw2_app_recovery_task();
         if (ft6336_poll(&x, &y)) {
@@ -38,6 +39,12 @@ int main(void) {
         if (absolute_time_diff_us(get_absolute_time(), next_led) <= 0) {
             ws2812_show();                        // re-latch green (framebuffer persists)
             next_led = make_timeout_time_ms(250);
+        }
+        if (time_reached(next_touch_health)) {
+            DIAG("touch health: errors=%u recoveries=%u\n",
+                 (unsigned)ft6336_i2c_errors(),
+                 (unsigned)ft6336_i2c_recoveries());
+            next_touch_health = make_timeout_time_ms(1000);
         }
     }
 }

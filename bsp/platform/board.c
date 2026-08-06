@@ -3,6 +3,7 @@
 #include "platform/board.h"
 #include "platform/ioexp.h"
 #include "platform/spi_bus.h"
+#include "leds/ws2812_driver.h"
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
@@ -26,6 +27,11 @@ void board_init_clk(uint32_t sys_clock_khz) {
     // and the LCD shows nothing — the working reference driver does exactly this.
     uint32_t f = clock_get_hz(clk_sys);
     clock_configure(clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, f, f);
+
+    // WS2812 pixels retain their last latched colors across an RP2350 reset.
+    // Clear them before the app claims pio1. The helper sends the required
+    // second frame and releases its state machine and instruction memory.
+    ws2812_clear_once(pio1, PIN_LED_DATA);
 
     // Re-time PSRAM for the new clk_sys. The SDK brings PSRAM up during
     // runtime_init, BEFORE main() — i.e. at the boot clock — and nothing in
@@ -112,4 +118,9 @@ void board_i2c1_init(void) {
     gpio_set_function(PIN_I2C1_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(PIN_I2C1_SDA);
     gpio_pull_up(PIN_I2C1_SCL);
+}
+
+void board_i2c1_recover(void) {
+    i2c_deinit(i2c1);
+    board_i2c1_init();
 }

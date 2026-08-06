@@ -46,6 +46,12 @@ static uint32_t rail_mv(uint32_t adc_input) {
 int main(void) {
     board_init();   /* must precede ow_open_fwgui: uart_init reads clk_peri */
     fw2_app_recovery_init();
+    st7796_init();
+    st7796_fill_screen(0x0000);
+    board_backlight_set(1);
+    st7796_draw_text(8, 8, 2, 0xFFFF, 0x0000, "GPIO HEADER VIO TEST");
+    st7796_draw_text(8, 40, 1, 0xFFFF, 0x0000, "SWEEPING VREF OPTIONS...");
+    st7796_draw_text(8, 288, 1, 0xFFFF, 0x0000, "HOLD HOME 5S TO EXIT");
     rail_monitor_init();
 
     /* What board_init() left us with, before anything here touches VREF. */
@@ -69,6 +75,8 @@ int main(void) {
         fw2_app_recovery_sleep_ms(200); /* let the rail settle before measuring */
         DIAG("hello_vref: VREF_%s -> VIO %u mV, Vout %u mV\n",
              sweep[i].name, rail_mv(ADC_IN_VIO), rail_mv(ADC_IN_VOUT));
+        st7796_fill_rect(8, 64, 280, 16, 0x0000);
+        st7796_draw_text(8, 64, 2, 0xFFFF, 0x0000, sweep[i].name);
     }
 
     static ow_device dev;   /* ~37 KB of buffers - far too big for the 2 KB stack */
@@ -79,12 +87,17 @@ int main(void) {
     }
     DIAG("hello_vref: link up, toggling main-CPU GPIO %d every %d ms\n",
          TOGGLE_PIN, TOGGLE_PERIOD_MS);
+    st7796_fill_rect(8, 40, 360, 16, 0x0000);
+    st7796_draw_text(8, 40, 2, 0xFFFF, 0xE007, "VIO = 3.3V");
+    st7796_draw_text(8, 96, 1, 0xFFFF, 0x0000, "TOGGLING HEADER GPIO 25");
 
     for (;;) {
         fw2_app_recovery_task();
         ow_status s = ow_io_gpio_set_io_toggle(&dev, TOGGLE_PIN);
         if (s != OW_OK) {
             DIAG("hello_vref: toggle failed, status %d\n", (int)s);
+            st7796_fill_rect(8, 128, 360, 16, 0x0000);
+            st7796_draw_text(8, 128, 2, 0xFFFF, 0x00F8, "ONEWILI TOGGLE FAILED");
         } else {
             /* Read the main CPU's GPIO bitfield back so the log shows the pin
                actually moved, rather than just that the command was accepted. */
@@ -93,9 +106,13 @@ int main(void) {
             if (r != OW_OK)
                 DIAG("hello_vref: GPIO %d toggled, read_all failed (status %d), VIO %u mV\n",
                      TOGGLE_PIN, (int)r, rail_mv(ADC_IN_VIO));
-            else
+            else {
                 DIAG("hello_vref: GPIO %d = %d (bitfield 0x%x, VIO %u mV)\n",
                      TOGGLE_PIN, (gpios >> TOGGLE_PIN) & 1u, gpios, rail_mv(ADC_IN_VIO));
+                st7796_fill_rect(8, 128, 360, 16, 0x0000);
+                st7796_draw_text(8, 128, 2, 0xFFFF, 0x0000,
+                                 ((gpios >> TOGGLE_PIN) & 1u) ? "GPIO 25 = HIGH" : "GPIO 25 = LOW");
+            }
         }
         fw2_app_recovery_sleep_ms(TOGGLE_PERIOD_MS);
     }

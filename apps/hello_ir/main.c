@@ -12,6 +12,13 @@
 int main(void) {
     board_init();
     fw2_app_recovery_init();
+    st7796_init();
+    st7796_fill_screen(0x0000);
+    board_backlight_set(1);
+    st7796_draw_text(8, 8, 2, 0xFFFF, 0x0000, "INFRARED LOOPBACK");
+    st7796_draw_text(8, 40, 1, 0xFFFF, 0x0000, "TX NEC EVERY 5 SECONDS");
+    st7796_draw_text(8, 56, 1, 0xFFFF, 0x0000, "POINT A REMOTE AT RECEIVER");
+    st7796_draw_text(8, 288, 1, 0xFFFF, 0x0000, "HOLD HOME 5S TO EXIT");
     DIAG("hello_ir: up\n");
     ir_capture_init();               // powers the IR rail (PCAL6524 P2_0)
     fw2_app_recovery_sleep_ms(5);    // rail settle: no display bring-up here
@@ -30,20 +37,29 @@ int main(void) {
         if (time_reached(next_tx) && !ir_tx_busy()) {
             const ir_message_t out = {IR_PROTO_NEC, 0x04, 0x08, false};
             uint32_t n = ir_encode(&out, durs, IR_MAX_TIMINGS);
-            if (n && ir_tx_send(durs, n, 38000)) DIAG("tx: sent NEC A:0x4 C:0x8\n");
+            if (n && ir_tx_send(durs, n, 38000)) {
+                DIAG("tx: sent NEC A:0x4 C:0x8\n");
+                st7796_fill_rect(8, 96, 280, 16, 0x0000);
+                st7796_draw_text(8, 96, 2, 0xFFFF, 0x0000, "NEC FRAME SENT");
+            }
             next_tx = make_timeout_time_ms(5000);
         }
         if (ir_capture_poll(&frame)) {
-            if (ir_decode(frame.durs, frame.count, &msg))
+            if (ir_decode(frame.durs, frame.count, &msg)) {
                 DIAG("rx: %lu edges  %s A:0x%lX C:0x%lX%s  (ovr %lu)\n",
                      (unsigned long)frame.count, ir_protocol_name(msg.protocol),
                      (unsigned long)msg.address, (unsigned long)msg.command,
                      msg.repeat ? " rpt" : "",
                      (unsigned long)ir_capture_overruns());
-            else
+                st7796_fill_rect(8, 128, 320, 16, 0x0000);
+                st7796_draw_text(8, 128, 2, 0xFFFF, 0xE007, "IR FRAME DECODED");
+            } else {
                 DIAG("rx: %lu edges  RAW first=%lu,%lu,%lu\n",
                      (unsigned long)frame.count, (unsigned long)frame.durs[0],
                      (unsigned long)frame.durs[1], (unsigned long)frame.durs[2]);
+                st7796_fill_rect(8, 128, 320, 16, 0x0000);
+                st7796_draw_text(8, 128, 2, 0xFFFF, 0x0000, "RAW IR FRAME SEEN");
+            }
         }
         fw2_app_recovery_sleep_ms(2);
     }

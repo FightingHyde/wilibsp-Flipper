@@ -10,4 +10,6 @@ handshake), so a missing bridge surfaces later: the first toggle times out
 after ~5 s and reports over RTT (`fw rtt`). With hardware flow control, a
 dead peer can then stall further sends.
 
+The LCD reports each successful toggle or transport failure.
+
 Build/flash: `fw build toggleled` / `fw flash toggleled`.

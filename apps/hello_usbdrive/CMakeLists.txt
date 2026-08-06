@@ -1,5 +1,5 @@
 add_executable(hello_usbdrive main.c)
 target_link_libraries(hello_usbdrive freewili2_bsp)
 fw2_display_app(hello_usbdrive
-    VERSION 001
+    VERSION 002
     DESCRIPTION "Mount and inspect a USB mass-storage device")
