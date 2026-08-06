@@ -37,11 +37,13 @@ int main(void) {
     /* ow_open_fwgui only sends the reset byte (no handshake), so it cannot
      * currently fail; the loop future-proofs a smarter open. A missing bridge
      * surfaces below instead, as SD timeouts. */
-    while (ow_open_fwgui(&dev) != OW_OK) {
+    while (fw2_app_recovery_open_onewili(&dev) != OW_OK) {
         fw2_app_recovery_task();
         DIAG("hello_sdcard: FwGUI link open failed (is the main CPU running stock fw?), retry in 1 s\n");
         fw2_app_recovery_sleep_ms(1000);
     }
+    if (fw2_app_recovery_wrap_sd() != OW_OK)
+        DIAG("hello_sdcard: recovery-aware SD transport setup failed\n");
     DIAG("hello_sdcard: link up, SD client armed\n");
 
     /* Repeating mkdir is fine — an existing directory reports a clean error. */
@@ -82,9 +84,6 @@ int main(void) {
     } else {
         DIAG("hello_sdcard: read failed (sdfs %d)\n", (int)ow_sd_last_error());
     }
-    fw2_app_recovery_wrap_onewili(&dev);
-    if (fw2_app_recovery_wrap_sd() != OW_OK)
-        DIAG("hello_sdcard: recovery-aware SD transport setup failed\n");
     fw2_app_recovery_task();
 
     DIAG("hello_sdcard: %s:\n", LOG_DIR);

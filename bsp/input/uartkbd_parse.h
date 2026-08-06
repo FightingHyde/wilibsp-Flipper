@@ -138,4 +138,10 @@ uint32_t uartkbd_parse_errors(const uartkbd_parser_t *p);
 void     uartkbd_parse_set_inject(uartkbd_parser_t *p, uint16_t mask);
 uint16_t uartkbd_parse_inject(const uartkbd_parser_t *p);
 
+/* Pure freshness policy used by HOME recovery and host tests. */
+bool uartkbd_button_down_fresh_state(uint16_t buttons, uint16_t injected,
+                                     uartkbd_btn_t button, bool have_frame,
+                                     uint32_t now_ms, uint32_t frame_ms,
+                                     uint32_t max_age_ms);
+
 #endif /* UARTKBD_PARSE_H */

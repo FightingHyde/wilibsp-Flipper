@@ -23,12 +23,11 @@ int main(void) {
     /* ow_open_fwgui currently cannot fail (it only sends the reset byte,
      * no handshake) - this loop future-proofs a smarter open. A missing
      * bridge surfaces later as toggle timeouts on the DIAG below. */
-    while (ow_open_fwgui(&dev) != OW_OK) {
+    while (fw2_app_recovery_open_onewili(&dev) != OW_OK) {
         fw2_app_recovery_task();
         DIAG("toggleled: FwGUI link open failed (is the main CPU running stock fw?), retry in 1 s\n");
         fw2_app_recovery_sleep_ms(1000);
     }
-    fw2_app_recovery_wrap_onewili(&dev);
     DIAG("toggleled: link up, toggling main-CPU GPIO 25 every 500 ms\n");
 
     for (;;) {

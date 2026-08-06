@@ -7,6 +7,7 @@
 #include "onewili.h"
 #include "onewili_fwgui.h"
 #include "onewili_sd.h"
+#include "pico/time.h"
 
 typedef struct {
     ow_transport inner;
@@ -36,6 +37,27 @@ static inline void fw2_app_recovery_wrap_onewili(ow_device *dev) {
     fw2_recovery_ow_ctx.inner = dev->t;
     dev->t.ctx = &fw2_recovery_ow_ctx;
     dev->t.read = fw2_recovery_ow_read;
+}
+
+static bool fw2_recovery_open_timer(struct repeating_timer *timer) {
+    (void)timer;
+    fw2_app_recovery_task();
+    return true;
+}
+
+/* ow_open_fwgui() performs bounded SD handle cleanup before its transport can
+ * be wrapped. Service recovery from a timer during that one initialization
+ * interval, then install the sliced read adapter for all later calls. */
+static inline ow_status fw2_app_recovery_open_onewili(ow_device *dev) {
+    struct repeating_timer timer;
+    bool timer_started = add_repeating_timer_ms(
+        -10, fw2_recovery_open_timer, NULL, &timer);
+    if (!timer_started) return OW_ERR_IO;
+    ow_status status = ow_open_fwgui(dev);
+    cancel_repeating_timer(&timer);
+    fw2_app_recovery_task();
+    if (status == OW_OK) fw2_app_recovery_wrap_onewili(dev);
+    return status;
 }
 
 typedef struct {

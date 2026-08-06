@@ -92,8 +92,18 @@ def test_onewili_apps_wrap_synchronous_transports():
     offenders = []
     for source_path in APPS.glob("*/*.c"):
         source = source_path.read_text(encoding="utf-8")
-        if "ow_open_fwgui(" in source and "fw2_app_recovery_wrap_onewili(" not in source:
+        main_at = source.find("int main(")
+        if main_at < 0:
+            continue
+        body = source[main_at:]
+        sync_calls = [at for token in ("ow_io_", "ow_sd_")
+                      if (at := body.find(token)) >= 0]
+        wrap_at = body.find("fw2_app_recovery_open_onewili(")
+        if "onewili.h" in source and sync_calls and (wrap_at < 0 or
+                                                      wrap_at > min(sync_calls)):
             offenders.append(str(source_path.relative_to(APPS)))
-        if "ow_sd_" in source and "fw2_app_recovery_wrap_sd(" not in source:
+        first_sd = body.find("ow_sd_")
+        wrap_sd = body.find("fw2_app_recovery_wrap_sd(")
+        if first_sd >= 0 and (wrap_sd < 0 or wrap_sd > first_sd):
             offenders.append(str(source_path.relative_to(APPS)) + " (SD)")
     assert not offenders, "OneWili calls can starve HOME recovery: " + ", ".join(offenders)

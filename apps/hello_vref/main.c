@@ -72,12 +72,11 @@ int main(void) {
     }
 
     static ow_device dev;   /* ~37 KB of buffers - far too big for the 2 KB stack */
-    while (ow_open_fwgui(&dev) != OW_OK) {
+    while (fw2_app_recovery_open_onewili(&dev) != OW_OK) {
         fw2_app_recovery_task();
         DIAG("hello_vref: FwGUI link open failed (is the main CPU running stock fw?), retry in 1 s\n");
         fw2_app_recovery_sleep_ms(1000);
     }
-    fw2_app_recovery_wrap_onewili(&dev);
     DIAG("hello_vref: link up, toggling main-CPU GPIO %d every %d ms\n",
          TOGGLE_PIN, TOGGLE_PERIOD_MS);
 

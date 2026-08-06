@@ -160,12 +160,10 @@ uint32_t uartkbd_errors(void)  { return uartkbd_parse_errors(&s_parser); }
 
 bool uartkbd_button_down_fresh(uartkbd_btn_t button, uint32_t max_age_ms)
 {
-    uint16_t bit = (uint16_t)(1u << button);
-    if (uartkbd_parse_inject(&s_parser) & bit) return true;
-    if (!s_have_real_frame ||
-        (uint32_t)(to_ms_since_boot(get_absolute_time()) - s_last_real_frame_ms) > max_age_ms)
-        return false;
-    return (uartkbd_parse_buttons(&s_parser) & bit) != 0;
+    return uartkbd_button_down_fresh_state(
+        uartkbd_parse_buttons(&s_parser), uartkbd_parse_inject(&s_parser),
+        button, s_have_real_frame,
+        to_ms_since_boot(get_absolute_time()), s_last_real_frame_ms, max_age_ms);
 }
 
 void uartkbd_inject_set(uint16_t mask)

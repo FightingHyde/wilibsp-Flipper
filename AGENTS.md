@@ -223,8 +223,8 @@ DISPLAY recovery loader can resume its flash application. Do not call
 
 Synchronous OneWili calls can otherwise hide the keyboard link for their full
 timeout. Apps using `ow_open_fwgui()` must include
-`input/app_recovery_onewili.h` and call
-`fw2_app_recovery_wrap_onewili(&dev)` after opening the link. Apps using
+`input/app_recovery_onewili.h` and open the link with
+`fw2_app_recovery_open_onewili(&dev)`. Apps using
 `ow_sd_*` must also call `fw2_app_recovery_wrap_sd()`. The wrappers split
 transport waits into short polls and service HOME between them. Physical HOME
 state also expires when fresh keyboard status frames stop arriving; explicit
