@@ -226,7 +226,11 @@ def install_app(uf2, serial_number=None, timeout=25, port=None):
                     "SD remains assigned to the PC. Close open files, safely eject "
                     "the volume, then return the SD to MAIN"
                 ) from primary
-        if pc_selected and unmounted:
+        # If no volume ever appeared, there is no mounted filesystem to
+        # protect: return the mux to MAIN instead of stranding it with the PC.
+        # Once a volume did appear, retain the stricter eject-before-return
+        # rule above to avoid corruption.
+        if pc_selected and (unmounted or volume is None):
             _set_sd_host(port, False)
         raise
     else:

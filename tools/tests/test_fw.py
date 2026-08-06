@@ -50,7 +50,7 @@ def test_install_app_copies_to_apps_ejects_and_returns_sd(tmp_path, monkeypatch)
     assert (volume / "apps" / "mesh.uf2").read_bytes() == app_uf2()
     assert calls == [("COM7", True), ("eject", volume), ("COM7", False)]
 
-def test_install_app_leaves_sd_with_pc_when_mount_is_not_identified(tmp_path, monkeypatch):
+def test_install_app_returns_sd_when_no_volume_ever_mounted(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"
     source.write_bytes(app_uf2())
     calls = []
@@ -64,7 +64,7 @@ def test_install_app_leaves_sd_with_pc_when_mount_is_not_identified(tmp_path, mo
         assert False, "expected RuntimeError"
     except RuntimeError as exc:
         assert "no card" in str(exc)
-    assert calls == [True]
+    assert calls == [True, False]
 
 def test_install_app_ejects_then_returns_sd_after_copy_failure(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"
