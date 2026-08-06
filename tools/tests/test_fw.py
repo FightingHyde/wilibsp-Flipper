@@ -2,6 +2,14 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import fw
 
+def app_uf2(address=0x11000000, block_no=0, num_blocks=1):
+    import struct
+    data = bytearray(512)
+    struct.pack_into("<8I", data, 0, 0x0A324655, 0x9E5D5157, 0,
+                     address, 256, block_no, num_blocks, 0xE48BFF59)
+    struct.pack_into("<I", data, 508, 0x0AB16F30)
+    return bytes(data)
+
 def test_new_app_copies_template(tmp_path):
     root = tmp_path
     (root / "apps" / "template").mkdir(parents=True)
@@ -24,6 +32,117 @@ def test_new_app_rejects_existing(tmp_path):
         assert False, "expected FileExistsError"
     except FileExistsError:
         pass
+
+def test_install_app_copies_to_apps_ejects_and_returns_sd(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    volume = tmp_path / "card"
+    volume.mkdir()
+    calls = []
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setattr(fw, "_mounted_volumes", lambda: {tmp_path / "old"})
+    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
+    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append((port, pc)))
+    monkeypatch.setattr(fw, "_eject_volume", lambda path: calls.append(("eject", path)))
+
+    fw.install_app(source, "FW123")
+
+    assert (volume / "apps" / "mesh.uf2").read_bytes() == app_uf2()
+    assert calls == [("COM7", True), ("eject", volume), ("COM7", False)]
+
+def test_install_app_leaves_sd_with_pc_when_mount_is_not_identified(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    calls = []
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setattr(fw, "_mounted_volumes", set)
+    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: (_ for _ in ()).throw(RuntimeError("no card")))
+    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append(pc))
+
+    try:
+        fw.install_app(source)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "no card" in str(exc)
+    assert calls == [True]
+
+def test_install_app_ejects_then_returns_sd_after_copy_failure(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    volume = tmp_path / "card"
+    volume.mkdir()
+    calls = []
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setattr(fw, "_mounted_volumes", set)
+    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
+    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append(("host", pc)))
+    monkeypatch.setattr(fw.shutil, "copyfile", lambda *args: (_ for _ in ()).throw(OSError("copy failed")))
+    monkeypatch.setattr(fw, "_eject_volume", lambda path: calls.append(("eject", path)))
+
+    try:
+        fw.install_app(source)
+        assert False, "expected OSError"
+    except OSError as exc:
+        assert "copy failed" in str(exc)
+    assert calls == [("host", True), ("eject", volume), ("host", False)]
+
+def test_install_app_never_returns_sd_when_eject_fails(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    volume = tmp_path / "card"
+    volume.mkdir()
+    calls = []
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setattr(fw, "_mounted_volumes", set)
+    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
+    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append(("host", pc)))
+    monkeypatch.setattr(fw, "_eject_volume", lambda path: (_ for _ in ()).throw(RuntimeError("busy")))
+
+    try:
+        fw.install_app(source)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "remains assigned to the PC" in str(exc)
+    assert calls == [("host", True)]
+
+def test_install_app_rejects_flash_before_touching_hardware(tmp_path, monkeypatch):
+    source = tmp_path / "bad.uf2"
+    source.write_bytes(app_uf2(0x10000000))
+    monkeypatch.setattr(fw, "_fwfinder_main_port",
+                        lambda serial: (_ for _ in ()).throw(AssertionError("hardware touched")))
+    try:
+        fw.install_app(source)
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "QSPI flash" in str(exc)
+
+def test_check_app_uf2_rejects_incomplete_declared_block_set(tmp_path):
+    source = tmp_path / "truncated.uf2"
+    source.write_bytes(app_uf2(num_blocks=2))
+    try:
+        fw.check_app_uf2(source)
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "incomplete" in str(exc)
+
+def test_check_app_uf2_rejects_duplicate_block_number(tmp_path):
+    source = tmp_path / "duplicate.uf2"
+    source.write_bytes(app_uf2(block_no=0, num_blocks=2) * 2)
+    try:
+        fw.check_app_uf2(source)
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "duplicates" in str(exc)
+
+def test_check_app_uf2_rejects_inconsistent_block_totals(tmp_path):
+    source = tmp_path / "inconsistent.uf2"
+    source.write_bytes(app_uf2(block_no=0, num_blocks=2) +
+                       app_uf2(address=0x11000100, block_no=1, num_blocks=3))
+    try:
+        fw.check_app_uf2(source)
+        assert False, "expected ValueError"
+    except ValueError as exc:
+        assert "inconsistent" in str(exc)
 
 def test_build_command_uses_target_preset():
     cmd = fw.build_command("hello_display")

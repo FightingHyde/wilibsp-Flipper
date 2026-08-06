@@ -226,6 +226,58 @@ BSP, and they may change. Key facts:
   than `RP_ZONE_MAIN_DEMAND_TTL_MS` (5000 ms) — a rebooting or hung MAIN
   keeps its rails powered.
 
+### What raises each managed zone
+
+The manager never asks "is this hardware in use?". It evaluates a fixed
+predicate per zone over a snapshot, and three different sources feed that
+snapshot. Which source applies decides how an app keeps a rail up.
+
+**Observed on the DISPLAY CPU.** Use the hardware through its normal driver and
+the rail follows:
+
+| Zone | Raised while |
+|---|---|
+| 1 | a sensor stream is enabled, the VREF mux is connected, or anything is holding zone 4 — the DISPLAY I/O expander on this rail is the only writer of the sub-GHz mux bits, so a zone-4 holder must hold zone 1 too |
+| 3 | audio playback is active |
+| 4 | the sub-GHz arbiter has granted the CC1101, the LoRa RX-control shadow is set, or a LoRa transmit is in flight |
+| 10 | any LED in the pixel buffer is lit |
+| 13 | the NFC reader shadow is set — the reader's own enable/disable, not chip presence |
+
+**Declared by MAIN over `0x7F`.** Re-sampled from MAIN-side state and sent on
+change or at least once a second. The demand is that specific state, *not*
+whether the peripheral is being touched:
+
+| Zone | Bit | Raised while |
+|---|---|---|
+| 5 | `0x01` wifi, `0x02` BLE | station or AP enabled, BLE enabled, the ESP32 flasher running, or a wifi/BLE scan's bounded window open |
+| 11 | `0x08` analog | a DAC wave is running or a DC level is commanded, either ADC stream rate is non-zero, the logic player or analyzer owns the ADC, or the Analog panel is selected |
+| 15 | `0x10` CAN | the CAN stream or API is enabled, a periodic TX slot is armed, the CAN log is open, or the Neptune panel is selected |
+
+**VBUS-gated.** Zones 8, 14 and 16, from the coprocessor's `0xBD` status frame.
+Not app-controllable.
+
+### Rules for an app running against the stock firmware
+
+- **Express demand; do not drive a managed rail.** Switching a managed zone on
+  from outside the manager — `0x6C` or `0x6D` — holds only until the next
+  evaluation, which sees nothing demanding that zone and switches it back off.
+  The app gets a rail cycle instead of a powered rail. Where the rail's devices
+  share a bus with others this is felt well beyond the app: zone 1 carries the
+  DISPLAY I/O expander alongside the touch controller and the sensors, so
+  cycling it disturbs the whole `i2c1` bus.
+- **A managed zone nothing demands is driven off, not left alone.** It is
+  switched off the first time the manager sees a live status frame, so a rail
+  that happened to be on at boot will not stay on for an app that never
+  declares a need for it.
+- **Bypassing MAIN's state bypasses the demand.** Driving zone 5, 11 or 15
+  hardware without going through the state in the table above means the rail
+  reads as unwanted and is dropped mid-operation, typically within a couple of
+  heartbeats.
+- **Zones 2, 6, 7, 9, 12 and 17 are the app's.** The manager never moves them;
+  nothing raises them for the app either.
+- If an app's hardware genuinely cannot be expressed as demand, the escape
+  hatch above reverts the device to manual zone control.
+
 ### The FwGUI power channel (host → DISPLAY, i.e. MAIN → DISPLAY)
 
 The raw coprocessor link is still single-writer (only the DISPLAY drives the
