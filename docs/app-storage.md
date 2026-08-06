@@ -85,6 +85,10 @@ For a PSRAM-resident app:
 These requirements apply to apps **executing from PSRAM**, not to ordinary BSP
 apps linked and loaded directly into SRAM with the `no_flash` binary type.
 
+See `apps/hello_psram_exec` for a minimal freestanding implementation: custom
+linker script, PSRAM reset stub, SRAM bootstrap, PSRAM-only UF2 generator, and
+post-link placement checks. It deliberately avoids the normal cold-boot CRT.
+
 Before publishing a PSRAM app, make the build verify all of the following:
 
 1. The first vector-table words contain an SRAM stack pointer and a PSRAM reset
