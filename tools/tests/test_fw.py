@@ -83,13 +83,26 @@ def test_windows_unmount_does_not_use_shell_eject():
     assert "InvokeVerb('Eject')" not in body
 
 def test_run_app_sends_apps_relative_path(monkeypatch):
-    wire = FakeSerial([b"noise\n", b"[a\\r 1]\n"])
+    wire = FakeSerial([b"noise\n", b"[a\\r 1]\n", b"[d Ok 1]\n"])
     monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
     monkeypatch.setitem(sys.modules, "serial", type("SerialModule", (), {
         "Serial": staticmethod(lambda *args, **kwargs: wire)
     }))
     fw.run_app("wilibsp/hello_psram_exec.uf2", "FW123")
     assert wire.writes == [b"\x02a\\r wilibsp/hello_psram_exec.uf2\n"]
+
+
+def test_run_app_waits_for_deferred_loader_failure(monkeypatch):
+    wire = FakeSerial([b"[a\\r 1]\n", b"[d psram stub did not answer 0]\n"])
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setitem(sys.modules, "serial", type("SerialModule", (), {
+        "Serial": staticmethod(lambda *args, **kwargs: wire)
+    }))
+    try:
+        fw.run_app("team/bad.uf2", "FW123")
+        assert False, "expected deferred loader failure"
+    except RuntimeError as exc:
+        assert "psram stub did not answer" in str(exc)
 
 def test_run_app_rejects_unsafe_paths_before_hardware(monkeypatch):
     monkeypatch.setattr(fw, "_fwfinder_main_port",

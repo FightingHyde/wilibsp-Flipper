@@ -131,7 +131,7 @@ def _app_path(path):
         raise ValueError("app path must name a .uf2 file")
     return "/".join(parts)
 
-def run_app(path, serial_number=None, timeout=15, port=None):
+def run_app(path, serial_number=None, timeout=120, port=None):
     path = _app_path(path)
     port = port or _fwfinder_main_port(serial_number)
     command = f"{RUN_APP_COMMAND} {path}"
@@ -143,15 +143,23 @@ def run_app(path, serial_number=None, timeout=15, port=None):
     with serial.Serial(port, 1_000_000, timeout=0.2) as wire:
         wire.reset_input_buffer()
         wire.write(b"\x02" + command.encode("ascii") + b"\n")
+        queued = False
         while time.monotonic() < deadline:
             line = wire.readline().decode("utf-8", "replace").strip()
-            if not line.startswith("[" + RUN_APP_COMMAND + " "):
+            if line.startswith("[" + RUN_APP_COMMAND + " "):
+                if not line.endswith(" 1]"):
+                    raise RuntimeError(f"device rejected {command!r}: {line}")
+                queued = True
                 continue
-            if line.endswith(" 1]"):
+            # The menu command only queues the blocking load.  MAIN reports
+            # its actual result later under response key "d" after the UART
+            # stub/transfer/launch sequence has completed.
+            if queued and line.startswith("[d "):
+                if not line.endswith(" 1]"):
+                    raise RuntimeError(f"device failed to launch {command!r}: {line}")
                 print(f"launched /apps/{path}")
                 return
-            raise RuntimeError(f"device rejected {command!r}: {line}")
-    raise RuntimeError(f"timeout waiting for MAIN to acknowledge {command!r}")
+    raise RuntimeError(f"timeout waiting for MAIN to launch {command!r}")
 
 def _mounted_volumes():
     """Mounted removable-volume roots. Kept small and dependency-free."""
@@ -705,7 +713,7 @@ def main(argv=None):
     sp.add_argument("path", help="UF2 path relative to /apps")
     sp.add_argument("--device")
     sp.add_argument("--port")
-    sp.add_argument("--timeout", type=float, default=15)
+    sp.add_argument("--timeout", type=float, default=120)
 
     sp = sub.add_parser("screenshot")
     sp.add_argument("-o", "--out", default="screenshot.png")
