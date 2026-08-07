@@ -377,6 +377,21 @@ static void test_charger_temp_c(void)
     CHECK(uartkbd_charger_temp_c(1000) <= -100.0f);
 }
 
+static void test_button_freshness_policy(void)
+{
+    uint16_t home = (uint16_t)(1u << UARTKBD_BTN_HOME);
+    CHECK(uartkbd_button_down_fresh_state(home, 0, UARTKBD_BTN_HOME,
+                                          true, 1000, 500, 1100));
+    CHECK(!uartkbd_button_down_fresh_state(home, 0, UARTKBD_BTN_HOME,
+                                           true, 1601, 500, 1100));
+    CHECK(uartkbd_button_down_fresh_state(home, 0, UARTKBD_BTN_HOME,
+                                          true, 500, UINT32_MAX - 100, 1100));
+    CHECK(uartkbd_button_down_fresh_state(home, home, UARTKBD_BTN_HOME,
+                                          false, 9000, 0, 1100));
+    CHECK(!uartkbd_button_down_fresh_state(home, 0, UARTKBD_BTN_HOME,
+                                           false, 9000, 0, 1100));
+}
+
 int main(void)
 {
     test_valid_frame_latches_buttons();
@@ -396,6 +411,7 @@ int main(void)
     test_charger_undocumented_code_passthrough();
     test_charger_bad_checksum_keeps_old_snapshot();
     test_charger_temp_c();
+    test_button_freshness_policy();
     if (g_failures == 0) printf("test_uartkbd_parse: all passed\n");
     TEST_RETURN();
 }

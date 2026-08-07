@@ -5,11 +5,15 @@
 #include "input/ft6336.h"
 #include "input/ft6336_map.h"
 #include "hardware/i2c.h"
+#include "pico/time.h"
+#include "platform/board.h"
 #include "platform/diag.h"
 
 /* Bounded transfers: this bus is shared, and a device that loses its
  * supply or is reset mid-transfer can hold it. */
 #define I2C_XFER_TIMEOUT_US 2000
+#define I2C_FAILURES_BEFORE_RECOVERY 8u
+#define I2C_RECOVERY_MIN_INTERVAL_MS 250u
 
 #define FT6336_I2C             i2c1
 #define FT6336_ADDR            0x38
@@ -22,19 +26,53 @@
 // wedged I2C bus into a permanently hung UI (bench incident 2026-07-29,
 // first real two-finger session — cores alive, UI parked in i2c waits).
 // 2 ms is ~10x a normal 11-byte transaction at 400 kHz.
+static uint32_t s_i2c_errors;
+static uint32_t s_i2c_recoveries;
+static uint32_t s_consecutive_errors;
+static absolute_time_t s_next_recovery;
+
+static void ft_xfer_result(bool ok) {
+    if (ok) {
+        s_consecutive_errors = 0;
+        return;
+    }
+    s_i2c_errors++;
+    if (++s_consecutive_errors < I2C_FAILURES_BEFORE_RECOVERY ||
+        !time_reached(s_next_recovery))
+        return;
+    board_i2c1_recover();
+    s_i2c_recoveries++;
+    s_consecutive_errors = 0;
+    s_next_recovery = make_timeout_time_ms(I2C_RECOVERY_MIN_INTERVAL_MS);
+    DIAG("ft6336: I2C recovery errors=%u recoveries=%u\n",
+         (unsigned)s_i2c_errors, (unsigned)s_i2c_recoveries);
+}
+
 static bool ft_rd(uint8_t reg, uint8_t* buf, uint8_t n) {
 
-    if (i2c_write_timeout_us(FT6336_I2C, FT6336_ADDR, &reg, 1, true, I2C_XFER_TIMEOUT_US) != 1) return false;
-    return i2c_read_timeout_us(FT6336_I2C, FT6336_ADDR, buf, n, false, I2C_XFER_TIMEOUT_US) == (int)n;
+    bool ok = i2c_write_timeout_us(FT6336_I2C, FT6336_ADDR, &reg, 1, true,
+                                   I2C_XFER_TIMEOUT_US) == 1;
+    if (ok)
+        ok = i2c_read_timeout_us(FT6336_I2C, FT6336_ADDR, buf, n, false,
+                                 I2C_XFER_TIMEOUT_US) == (int)n;
+    ft_xfer_result(ok);
+    return ok;
 }
 
 // Write one register = val.
 static bool ft_wr(uint8_t reg, uint8_t val) {
     uint8_t b[2] = { reg, val };
-    return i2c_write_timeout_us(FT6336_I2C, FT6336_ADDR, b, 2, false, I2C_XFER_TIMEOUT_US) == 2;
+    bool ok = i2c_write_timeout_us(FT6336_I2C, FT6336_ADDR, b, 2, false,
+                                   I2C_XFER_TIMEOUT_US) == 2;
+    ft_xfer_result(ok);
+    return ok;
 }
 
 bool ft6336_init(void) {
+    s_i2c_errors = 0;
+    s_i2c_recoveries = 0;
+    s_consecutive_errors = 0;
+    s_next_recovery = get_absolute_time();
     uint8_t id = 0;
     bool ok = ft_rd(FT6336_REG_CHIP_ID, &id, 1);
     (void)ft_wr(FT6336_REG_DEVICE_MODE, 0x00); // non-fatal: mode defaults to normal; don't gate ok on this
@@ -54,6 +92,8 @@ void ft6336_inject_set(uint16_t x, uint16_t y, bool down) {
 }
 
 uint32_t ft6336_inject_reads(void) { return s_inj_reads; }
+uint32_t ft6336_i2c_errors(void) { return s_i2c_errors; }
+uint32_t ft6336_i2c_recoveries(void) { return s_i2c_recoveries; }
 
 int ft6336_poll2(uint16_t* x1, uint16_t* y1, uint16_t* x2, uint16_t* y2) {
     if (s_inj_down) {            // injected point wins; no I2C traffic at all

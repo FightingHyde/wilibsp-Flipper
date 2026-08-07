@@ -7,7 +7,10 @@
 
 int main(void) {
     board_init();
+    fw2_app_recovery_init();
     st7796_init();
+    fw2_app_about_use_lcd();
+    st7796_fill_screen(0x0000);
     board_backlight_set(1);
 
     ws2812_init(pio1, 0, PIN_LED_DATA);
@@ -18,7 +21,6 @@ int main(void) {
 
     ft6336_init();
 
-    st7796_fill_screen(0x0000);
     st7796_draw_text(8, 8, 2, 0xFFFF, 0x0000, "TOUCH THE SCREEN");
     DIAG("hello_display up: sys=%u kHz\n", BOARD_SYS_CLOCK_KHZ);
 
@@ -28,7 +30,9 @@ int main(void) {
     // periodically so all 16 LEDs stay lit. See docs/drivers/leds.md.
     uint16_t x, y;
     absolute_time_t next_led = get_absolute_time();
+    absolute_time_t next_touch_health = make_timeout_time_ms(1000);
     for (;;) {
+        fw2_app_recovery_task();
         if (ft6336_poll(&x, &y)) {
             st7796_fill_rect(x - 4, y - 4, 8, 8, 0x00F8 /* red: RGB565 0xF800 byte-swapped to wire order */);
             DIAG("touch %u,%u\n", x, y);
@@ -36,6 +40,12 @@ int main(void) {
         if (absolute_time_diff_us(get_absolute_time(), next_led) <= 0) {
             ws2812_show();                        // re-latch green (framebuffer persists)
             next_led = make_timeout_time_ms(250);
+        }
+        if (time_reached(next_touch_health)) {
+            DIAG("touch health: errors=%u recoveries=%u\n",
+                 (unsigned)ft6336_i2c_errors(),
+                 (unsigned)ft6336_i2c_recoveries());
+            next_touch_health = make_timeout_time_ms(1000);
         }
     }
 }

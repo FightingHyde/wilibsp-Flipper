@@ -1,6 +1,5 @@
 // hello_sensors — on-hardware smoke test for the four I2C1 sensors.
-// RTT-only (fw rtt), no display. Each *_init() DIAGs its presence/chip-id;
-// the loop prints one line per present sensor at ~2 Hz. DIAG has no float
+// The LCD and RTT show one line per present sensor at ~2 Hz. DIAG has no float
 // support, so values print as scaled integers:
 //   sht40: centi-degC / centi-%RH      opt4001: deci-lux
 //   bmi323: milli-g / centi-dps        bmm350: deci-uT (+ magnitude)
@@ -8,10 +7,28 @@
 #include "fw2.h"
 #include "platform/diag.h"
 #include "pico/stdlib.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+static inline uint16_t be16(uint16_t c) {
+    return (uint16_t)((c >> 8) | (c << 8));
+}
+
+static void draw_line(int y, const char *text, bool ok) {
+    st7796_fill_rect(8, y, 464, 28, be16(0x0000));
+    st7796_draw_text(12, y + 6, 1, be16(ok ? 0x07E0 : 0xF800),
+                     be16(0x0000), text);
+}
 
 int main(void) {
     board_init();   // 250 MHz + clk_peri re-source + I2C1 @ 400 kHz + ioexp
+    fw2_app_recovery_init();
     DIAG("\n=== hello_sensors: I2C sensor smoke test ===\n");
+    st7796_init();
+    fw2_app_about_use_lcd();
+    st7796_fill_screen(be16(0x0000));
+    st7796_draw_text(12, 12, 2, be16(0xFFFF), be16(0x0000), "I2C SENSORS");
+    board_backlight_set(1);
 
     bool have_sht = sht40_init();
     bool have_opt = opt4001_init();
@@ -19,38 +36,60 @@ int main(void) {
     bool have_mag = bmm350_init();
     DIAG("present: sht40=%d opt4001=%d bmi323=%d bmm350=%d\n",
          have_sht, have_opt, have_imu, have_mag);
+    char line[64];
+    snprintf(line, sizeof line, "SHT40 %s  OPT4001 %s",
+             have_sht ? "OK" : "MISSING", have_opt ? "OK" : "MISSING");
+    draw_line(45, line, have_sht && have_opt);
+    snprintf(line, sizeof line, "BMI323 %s  BMM350 %s",
+             have_imu ? "OK" : "MISSING", have_mag ? "OK" : "MISSING");
+    draw_line(75, line, have_imu && have_mag);
 
     while (1) {
+        fw2_app_recovery_task();
         if (have_sht) {
             sht40_reading_t s;
-            if (sht40_read(&s))
+            if (sht40_read(&s)) {
                 DIAG("sht40:   temp=%d centi-C  rh=%d centi-pct\n",
                      (int)(s.temp_c * 100.0f), (int)(s.rh_pct * 100.0f));
-            else DIAG("sht40:   read FAIL\n");
+                snprintf(line, sizeof line, "Temp %d.%02d C  RH %d.%02d%%",
+                         (int)s.temp_c, abs((int)(s.temp_c * 100.0f)) % 100,
+                         (int)s.rh_pct, abs((int)(s.rh_pct * 100.0f)) % 100);
+                draw_line(120, line, true);
+            } else { DIAG("sht40:   read FAIL\n"); draw_line(120, "SHT40 READ FAIL", false); }
         }
         if (have_opt) {
             float lux;
-            if (opt4001_read(&lux))
+            if (opt4001_read(&lux)) {
                 DIAG("opt4001: lux=%d deci-lux\n", (int)(lux * 10.0f));
-            else DIAG("opt4001: read FAIL\n");
+                snprintf(line, sizeof line, "Light %d.%d lux", (int)lux,
+                         abs((int)(lux * 10.0f)) % 10);
+                draw_line(150, line, true);
+            } else { DIAG("opt4001: read FAIL\n"); draw_line(150, "OPT4001 READ FAIL", false); }
         }
         if (have_imu) {
             bmi323_reading_t m;
-            if (bmi323_read(&m))
+            if (bmi323_read(&m)) {
                 DIAG("bmi323:  acc=%d,%d,%d milli-g  gyr=%d,%d,%d centi-dps\n",
                      (int)(m.ax * 1000.0f), (int)(m.ay * 1000.0f), (int)(m.az * 1000.0f),
                      (int)(m.gx * 100.0f), (int)(m.gy * 100.0f), (int)(m.gz * 100.0f));
-            else DIAG("bmi323:  read FAIL\n");
+                snprintf(line, sizeof line, "Accel %d  %d  %d mg",
+                         (int)(m.ax * 1000.0f), (int)(m.ay * 1000.0f),
+                         (int)(m.az * 1000.0f));
+                draw_line(180, line, true);
+            } else { DIAG("bmi323:  read FAIL\n"); draw_line(180, "BMI323 READ FAIL", false); }
         }
         if (have_mag) {
             bmm350_reading_t f;
-            if (bmm350_read(&f))
+            if (bmm350_read(&f)) {
                 DIAG("bmm350:  mag=%d,%d,%d deci-uT  mag_abs=%d deci-uT  temp=%d centi-C\n",
                      (int)(f.mx * 10.0f), (int)(f.my * 10.0f), (int)(f.mz * 10.0f),
                      (int)(f.magnitude * 10.0f), (int)(f.temp_c * 100.0f));
-            else DIAG("bmm350:  read FAIL\n");
+                snprintf(line, sizeof line, "Mag %d.%d uT",
+                         (int)f.magnitude, abs((int)(f.magnitude * 10.0f)) % 10);
+                draw_line(210, line, true);
+            } else { DIAG("bmm350:  read FAIL\n"); draw_line(210, "BMM350 READ FAIL", false); }
         }
         DIAG("---\n");
-        sleep_ms(500);
+        fw2_app_recovery_sleep_ms(500);
     }
 }

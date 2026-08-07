@@ -1,17 +1,13 @@
 # hello_mics
 
-On-hardware smoke test for the 4-channel PDM microphone driver
-(`bsp/pdm/pdm_capture`). RTT-only — no display.
+On-hardware smoke test for the four-channel onboard PDM microphone driver.
+The LCD shows live meters in physical left-to-right order **D, B, A, C**;
+RTT carries exact RMS and peak values about three times per second.
 
     fw build hello_mics
     fw flash hello_mics
     fw rtt
 
-Prints per-mic RMS + peak (after DC-blocking) ~3x/s. Expected:
-
-- All 4 channels alive with low ambient noise at rest.
-- Tapping / speaking directly at each mic position spikes that channel.
-  Physical left-to-right order is **D, B, A, C** (bench-measured in the
-  source `microphonearray` repo), not A-D.
-- A channel stuck at rms=0 (or frozen values) indicates the RP2350
-  pad-isolation trap or the MIC_PWR expander rail regressed.
+All channels should show low ambient activity. Tapping or speaking near each
+microphone should spike its corresponding meter. A channel stuck at zero or
+frozen indicates a microphone-power, pad-isolation, PIO, or DMA regression.

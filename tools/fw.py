@@ -9,6 +9,7 @@ Commands:
   fw test            build+run host unit tests (CTest, no hardware)
   fw new-app <name>  scaffold apps/<name> from apps/template
   fw install-app UF2 copy an app to the device SD card's /apps directory
+  fw run-app PATH     launch an installed /apps/PATH UF2 on DISPLAY
 Add --print to any build/flash/test command to print the command(s) instead of running.
 """
 import argparse, os, pathlib, shutil, socket, stat, struct, subprocess, sys, time, zlib
@@ -30,6 +31,7 @@ BUTTONS = ["grey", "yellow", "green", "blue", "red", "nav_center", "nav_up",
            "nav_down", "nav_left", "nav_right", "home", "ok", "cancel", "page"]
 
 SD_HOST_COMMAND = r"h\x\k"
+RUN_APP_COMMAND = r"a\r"
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 
 def check_app_uf2(path):
@@ -119,6 +121,38 @@ def _set_sd_host(port, to_pc, timeout=8):
             raise RuntimeError(f"device rejected {command!r}: {line}")
     raise RuntimeError(f"timeout waiting for MAIN to acknowledge {command!r}")
 
+def _app_path(path):
+    if not path or chr(92) in path or path.startswith("/"):
+        raise ValueError("app path must be relative to /apps and use '/' separators")
+    parts = path.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError("app path must not contain empty, '.' or '..' components")
+    if not parts[-1].lower().endswith(".uf2"):
+        raise ValueError("app path must name a .uf2 file")
+    return "/".join(parts)
+
+def run_app(path, serial_number=None, timeout=15, port=None):
+    path = _app_path(path)
+    port = port or _fwfinder_main_port(serial_number)
+    command = f"{RUN_APP_COMMAND} {path}"
+    try:
+        import serial
+    except ImportError as exc:
+        raise RuntimeError("install pyserial before using 'fw run-app'") from exc
+    deadline = time.monotonic() + timeout
+    with serial.Serial(port, 1_000_000, timeout=0.2) as wire:
+        wire.reset_input_buffer()
+        wire.write(b"\x02" + command.encode("ascii") + b"\n")
+        while time.monotonic() < deadline:
+            line = wire.readline().decode("utf-8", "replace").strip()
+            if not line.startswith("[" + RUN_APP_COMMAND + " "):
+                continue
+            if line.endswith(" 1]"):
+                print(f"launched /apps/{path}")
+                return
+            raise RuntimeError(f"device rejected {command!r}: {line}")
+    raise RuntimeError(f"timeout waiting for MAIN to acknowledge {command!r}")
+
 def _mounted_volumes():
     """Mounted removable-volume roots. Kept small and dependency-free."""
     if sys.platform == "win32":
@@ -162,19 +196,25 @@ def _wait_for_sd(baseline, timeout=25, poll=0.25):
 def _eject_volume(volume):
     volume = pathlib.Path(volume)
     if sys.platform == "win32":
-        # Do not use `mountvol /p`: it marks a permanently attached USB card
-        # reader offline, and changing the reader's media ownership does not
-        # necessarily create the PnP reconnect Windows needs to bring it back.
-        drive = str(volume).rstrip("\\/")
-        script = ("$item=(New-Object -ComObject Shell.Application)"
-                  f".Namespace(17).ParseName('{drive}');"
-                  "if($null -eq $item){exit 1};$item.InvokeVerb('Eject')")
-        subprocess.run(["powershell", "-NoProfile", "-Command", script], check=True)
-        deadline = time.monotonic() + 10
-        while volume in _mounted_volumes() and time.monotonic() < deadline:
-            time.sleep(0.2)
-        if volume in _mounted_volumes():
-            raise RuntimeError(f"Windows did not safely remove {volume}")
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        drive = str(volume).rstrip(chr(92) + "/")
+        volume_device = chr(92) * 2 + "." + chr(92) + drive
+        handle = kernel32.CreateFileW(volume_device, 0xC0000000, 3, None, 3, 0, None)
+        if handle == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        returned = wintypes.DWORD()
+        try:
+            for control in (0x00090018, 0x00090020):
+                if control == 0x00090020 and not kernel32.FlushFileBuffers(handle):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                if not kernel32.DeviceIoControl(handle, control, None, 0, None, 0,
+                                                ctypes.byref(returned), None):
+                    raise ctypes.WinError(ctypes.get_last_error())
+        finally:
+            kernel32.CloseHandle(handle)
     elif sys.platform == "darwin":
         subprocess.run(["diskutil", "unmount", str(volume)], check=True)
     else:
@@ -182,12 +222,25 @@ def _eject_volume(volume):
                         subprocess.check_output(["findmnt", "-n", "-o", "SOURCE", str(volume)], text=True).strip()],
                        check=True)
 
-def install_app(uf2, serial_number=None, timeout=25, port=None):
+def _app_subfolder(folder):
+    """Return a safe relative /apps subfolder as POSIX path components."""
+    if folder in (None, "", "."):
+        return ()
+    if "\\" in folder or folder.startswith("/"):
+        raise ValueError("app folder must be relative to /apps and use '/' separators")
+    parts = folder.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError("app folder must not contain empty, '.' or '..' components")
+    return tuple(parts)
+
+
+def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
     """Hand the SD to the PC, atomically copy UF2 into /apps, eject, hand it back."""
     source = pathlib.Path(uf2).resolve()
     if source.suffix.lower() != ".uf2" or not source.is_file():
         raise ValueError(f"expected an existing .uf2 file, got {uf2!r}")
     target = check_app_uf2(source)
+    folder_parts = _app_subfolder(folder)
     print(f"verified {target} app: no QSPI-flash payloads")
     port = port or _fwfinder_main_port(serial_number)
     baseline = _mounted_volumes()
@@ -199,7 +252,9 @@ def install_app(uf2, serial_number=None, timeout=25, port=None):
         pc_selected = True
         volume = _wait_for_sd(baseline, timeout)
         apps = volume / "apps"
-        apps.mkdir(exist_ok=True)
+        for part in folder_parts:
+            apps /= part
+        apps.mkdir(parents=True, exist_ok=True)
         temporary = apps / (source.name + ".tmp")
         shutil.copyfile(source, temporary)
         # Windows' CRT rejects fsync() on a read-only descriptor. Open for
@@ -226,7 +281,11 @@ def install_app(uf2, serial_number=None, timeout=25, port=None):
                     "SD remains assigned to the PC. Close open files, safely eject "
                     "the volume, then return the SD to MAIN"
                 ) from primary
-        if pc_selected and unmounted:
+        # If no volume ever appeared, there is no mounted filesystem to
+        # protect: return the mux to MAIN instead of stranding it with the PC.
+        # Once a volume did appear, retain the stricter eject-before-return
+        # rule above to avoid corruption.
+        if pc_selected and (unmounted or volume is None):
             _set_sd_host(port, False)
         raise
     else:
@@ -637,10 +696,16 @@ def main(argv=None):
     sp = sub.add_parser("new-app"); sp.add_argument("name")
     sp = sub.add_parser("install-app")
     sp.add_argument("uf2", help="app UF2 to copy into /apps on the device SD card")
+    sp.add_argument("--folder", help="relative subfolder under /apps (for example beta/team)")
     sp.add_argument("--device", help="fwFinder device serial (required when multiple devices are connected)")
     sp.add_argument("--port", help="explicit MAIN serial port if fwFinder cannot identify legacy hardware")
     sp.add_argument("--timeout", type=float, default=25,
                     help="seconds to wait for the USB SD reader (default: 25)")
+    sp = sub.add_parser("run-app")
+    sp.add_argument("path", help="UF2 path relative to /apps")
+    sp.add_argument("--device")
+    sp.add_argument("--port")
+    sp.add_argument("--timeout", type=float, default=15)
 
     sp = sub.add_parser("screenshot")
     sp.add_argument("-o", "--out", default="screenshot.png")
@@ -680,7 +745,9 @@ def main(argv=None):
     elif a.cmd == "new-app":
         print("created", new_app(a.name))
     elif a.cmd == "install-app":
-        install_app(a.uf2, a.device, a.timeout, a.port)
+        install_app(a.uf2, a.device, a.timeout, a.port, a.folder)
+    elif a.cmd == "run-app":
+        run_app(a.path, a.device, a.timeout, a.port)
     elif a.cmd == "screenshot":
         crop = tuple(int(v) for v in a.crop.split(",")) if a.crop else None
         if crop is not None and len(crop) != 4:

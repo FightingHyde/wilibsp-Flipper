@@ -13,6 +13,13 @@
 
 int main(void) {
     board_init();   // 250 MHz + vreg + clk_peri re-source; also ioexp_init + I2C1
+    fw2_app_recovery_init();
+    st7796_init();
+    fw2_app_about_use_lcd();
+    st7796_fill_screen(0x0000);
+    board_backlight_set(1);
+    st7796_draw_text(8, 8, 2, 0xFFFF, 0x0000, "CC1101 RADIO TEST");
+    st7796_draw_text(8, 40, 1, 0xFFFF, 0x0000, "POWERING SUB-GHZ RAIL...");
     DIAG("\n=== hello_cc1101: sub-GHz radio smoke test ===\n");
 
     // --- Phase 1: probe ---
@@ -23,21 +30,20 @@ int main(void) {
     // on, the first status frame proves it and the wait falls through;
     // on firmware that sends no status frames there is nothing to wait
     // for and the app proceeds as before.
-    uartkbd_init();
     picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_SUBGHZ));
     {
         absolute_time_t give_up   = make_timeout_time_ms(10000);
         absolute_time_t no_frames = make_timeout_time_ms(4000);
         uint32_t rails;
         while (!time_reached(give_up)) {
-            uartkbd_task();
+            fw2_app_recovery_task();
             picpwr_task();
             if (picpwr_rails(&rails)) {
                 if (rails & picpwr_zone_bit(PICPWR_ZONE_SUBGHZ)) break;
             } else if (time_reached(no_frames)) {
                 break;
             }
-            sleep_ms(25);
+            fw2_app_recovery_sleep_ms(25);
         }
         DIAG("picpwr: sub-GHz radio's rail %s\n",
              (picpwr_rails(&rails) && (rails & picpwr_zone_bit(PICPWR_ZONE_SUBGHZ)))
@@ -47,13 +53,18 @@ int main(void) {
     bool ok = cc1101_init();                // DIAGs PARTNUM/VERSION internally
     DIAG("cc1101: probe %s\n", ok ? "PASS" : "FAIL");
     if (!ok) {
+        st7796_fill_rect(8, 40, 320, 16, 0x0000);
+        st7796_draw_text(8, 40, 2, 0xFFFF, 0x00F8, "RADIO PROBE FAILED");
         DIAG("cc1101: halting — no radio on SPI1 (check bus/power/antenna)\n");
         while (1) {
-        uartkbd_task();
+        fw2_app_recovery_task();
         picpwr_task();
         tight_loop_contents();
     }
     }
+
+    st7796_fill_rect(8, 40, 320, 16, 0x0000);
+    st7796_draw_text(8, 40, 2, 0xFFFF, 0xE007, "RADIO PROBE PASS");
 
     // --- Phase 2: RSSI sweep across the 433 MHz ISM band ---
     uint32_t start_hz, step_hz; uint16_t nbins;
@@ -79,6 +90,9 @@ int main(void) {
     DIAG("scan: row=%s floor=%d dBm  peak=%d dBm @ %u Hz\n",
          have_row ? "ok" : "partial", floor_dbm, pk.rssi_dbm, (unsigned)pk.freq_hz);
 
+    st7796_draw_text(8, 72, 2, 0xFFFF, 0x0000,
+                     have_row ? "RSSI SCAN PASS" : "RSSI SCAN PARTIAL");
+
     // --- Phase 3: same-pad TX -> capture check ---
     gdo_capture_init();                     // claim pio2 SM + DMA
     gdo_capture_start();
@@ -92,12 +106,19 @@ int main(void) {
     ook_tx_send(train, 24, true);           // drives GDO0/GPIO32 as SIO output
     cc1101_tx_ook_stop();
     gdo_capture_attach_pin();               // re-route GDO0 to the capture PIO
-    sleep_ms(2);
+    fw2_app_recovery_sleep_ms(2);
     static uint32_t drained[128];
     uint32_t got = gdo_capture_drain(drained, 128);
     DIAG("capture: sent=24 pulses, drained=%u edges (nonzero => PIO2/DMA path live)\n",
          (unsigned)got);
     DIAG("cc1101: smoke test complete\n");
+    st7796_draw_text(8, 104, 2, 0xFFFF, 0x0000,
+                     got ? "GDO CAPTURE PASS" : "GDO CAPTURE FAILED");
+    st7796_draw_text(8, 136, 1, 0xFFFF, 0x0000, "HOLD HOME 5S TO EXIT");
 
-    while (1) tight_loop_contents();
+    while (1) {
+        fw2_app_recovery_task();
+        picpwr_task();
+        tight_loop_contents();
+    }
 }

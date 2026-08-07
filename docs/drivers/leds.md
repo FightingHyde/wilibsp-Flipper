@@ -56,6 +56,13 @@ uint gpio)`, `ws2812_set_pixel(uint i, rgb_t c)`, `ws2812_fill(rgb_t c)`,
 `FW2_LED_COUNT` = 16.
 
 **Dependencies:** Pico SDK `hardware_pio`; no I2C/board dependency beyond
-`board_init()` having run (for clocks). `pio1` is dedicated to the LEDs in
+`board_init()` having run (for clocks). LEDs and PDM microphones share `pio1` in
 this BSP — don't reuse it for another PIO program without checking state
 machine availability.
+
+`board_init()` clears the physical strip before handing control to the app, so
+a RAM app does not inherit another app's frozen LED colors. This startup clear
+transmits twice for the first-frame latch behavior, then releases its temporary
+state machine and PIO instructions. It neither enables the RGB power zone nor
+reserves `pio1`; microphone capture and an app's normal `ws2812_init()` can
+claim resources afterward.

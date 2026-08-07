@@ -29,7 +29,8 @@ orientation doc (command table, hardware invariants, how to add a driver).
 
 Prerequisites: Pico SDK 2.3.0 + ARM GCC toolchain (`~/.pico-sdk`), CMake +
 Ninja, a cmsis-dap debug probe (e.g. Raspberry Pi Debug Probe) + OpenOCD for
-flashing/RTT, Python 3 for the `fw` CLI. Works the same on Windows
+flashing/RTT, Python 3 for the `fw` CLI, and `pytest` for `fw test`
+(`python -m pip install pytest`). Works the same on Windows
 (PowerShell) and Linux.
 
 The SDK and toolchain versions are pinned in `tools/fw.py`
@@ -42,6 +43,8 @@ fw build            # configure + build apps/hello_display for the RP2350B targe
 fw flash            # program it over the debug probe (OpenOCD)
 fw rtt              # stream live SEGGER RTT diagnostics
 fw install-app app.uf2  # copy a loadable app to SD:/apps and return the card to MAIN
+fw install-app app.uf2 --folder beta/radio  # install to SD:/apps/beta/radio
+fw run-app beta/radio/app.uf2  # launch the installed app without navigating on-device
 ```
 
 (`tools/fw` is the POSIX launcher, `tools/fw.cmd` the Windows one; both just
@@ -79,6 +82,16 @@ Scaffold a new app from the template:
 fw new-app my_app
 # then add `add_subdirectory(apps/my_app)` to the top-level CMakeLists.txt
 ```
+
+For a standalone app repository, also follow
+[`docs/app-project-setup.md`](./docs/app-project-setup.md): pin this repository
+at `wilibsp/` and expose its complete `AGENTS.md` contract from the app root.
+
+Published app repositories must attach their validated `.uf2` to each release
+as a downloadable release artifact; see [`docs/app-storage.md`](./docs/app-storage.md).
+Apps with public source repositories must also expose an on-device About screen
+with the app version and repository link; holding PAGE for five seconds is the
+recommended convention.
 
 **Status:** every harvested driver group has passed its `hello_*` smoke
 test on a physical board (most recently `hello_ir`'s TX→RX loopback and

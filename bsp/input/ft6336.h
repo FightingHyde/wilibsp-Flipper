@@ -32,4 +32,9 @@ int ft6336_poll2(uint16_t* x1, uint16_t* y1, uint16_t* x2, uint16_t* y2);
 void     ft6336_inject_set(uint16_t x, uint16_t y, bool down);
 uint32_t ft6336_inject_reads(void);
 
+// Link-health counters. Errors are failed bounded I2C transactions;
+// recoveries are controller/bus reinitializations after repeated failures.
+uint32_t ft6336_i2c_errors(void);
+uint32_t ft6336_i2c_recoveries(void);
+
 #endif // FT6336_H

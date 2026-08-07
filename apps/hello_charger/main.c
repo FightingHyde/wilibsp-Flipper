@@ -171,20 +171,25 @@ static void draw_screen(const snap_t *s)
 int main(void)
 {
     board_init();
+    fw2_app_recovery_init();
     size_t psram_bytes = psram_init();
     if (psram_bytes < (size_t)ST7796_W * ST7796_H * 2) {
         DIAG("hello_charger: PSRAM absent/too small (%u bytes) - halting\n",
              (unsigned)psram_bytes);
-        for (;;) tight_loop_contents();
+        for (;;) {
+            fw2_app_recovery_task();
+            tight_loop_contents();
+        }
     }
     st7796_init();
+    fw2_app_about_use_lcd();
+    st7796_fill_screen(COL_BLACK);
     board_backlight_set(1);
-    uartkbd_init();
     DIAG("hello_charger up\n");
 
     uint64_t next_log = 0;
     while (true) {
-        uartkbd_task();
+        fw2_app_recovery_task();
         uartkbd_event_t ev;
         while (uartkbd_next_event(&ev))    /* drain so the ring never wraps */
             DIAG("uartkbd btn %d %s\n", (int)ev.btn, ev.pressed ? "down" : "up");
@@ -214,6 +219,6 @@ int main(void)
                  (unsigned)s.flags, (unsigned)s.buttons);
             next_log = now + 1000000;
         }
-        sleep_ms(2);
+        fw2_app_recovery_sleep_ms(2);
     }
 }

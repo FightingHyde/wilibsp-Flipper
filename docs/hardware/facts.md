@@ -29,12 +29,13 @@ change, the hardware SPI peripheral has no valid clock and the LCD shows
 nothing. The 1.25 V vreg bump exists because 250 MHz at the default vreg was
 marginal during heavy ST7796 bring-up in the source repo.
 
-Every app is built `pico_set_binary_type(<app> copy_to_ram)` (see
-`apps/template/CMakeLists.txt`, `apps/hello_display/CMakeLists.txt`): the
-whole binary (code + data + bss) runs from the RP2350's 512 KB SRAM, not
-flash XIP. This is what makes running at 250 MHz safe without flash-timing
-concerns, but it means SRAM is the tight budget — large buffers (framebuffers,
-capture clips, waterfalls) must go in PSRAM
+Every app is built through `fw2_display_app()`, which selects the SDK's
+`no_flash` binary type (see
+`apps/template/CMakeLists.txt`, `apps/hello_display/CMakeLists.txt`): loadable
+code, initialized data, and ordinary bss run from the RP2350's 512 KB SRAM,
+not flash XIP. This makes running at 250 MHz safe without flash-timing
+concerns, but SRAM remains the tight budget — large buffers (framebuffers,
+capture clips, waterfalls) can be explicitly placed in PSRAM
 (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the SDK's
 `hardware_psram` at boot), not on the stack or in a static SRAM array. Place
 them with `__uninitialized_psram("group")`, never by casting `PSRAM_BASE` — see
@@ -219,6 +220,12 @@ is a WS2812 timing/startup quirk on this board.
 `apps/hello_display/main.c` re-issues `ws2812_show()` every ~250 ms from its main
 loop; the symptom was originally seen because an earlier version showed the LEDs
 once during setup and then sat in a touch-only loop that never refreshed them.
+
+WS2812 pixels also retain their last latched colors when the display CPU resets
+into another RAM app. `board_init()` therefore sends two all-off frames during
+startup. Its one-shot helper then disables and unclaims the temporary `pio1`
+state machine and removes the PIO program; it does not request the RGB power
+zone. Apps remain free to use `pio1` for the LEDs or PDM microphones afterward.
 
 ## Host tests are a standalone CMake project
 
@@ -483,7 +490,7 @@ real reading of the SDK source to establish:
   easy way to "fix" the timing and have nothing change.
 - **`psram_reinitialize()` is documented unsafe while executing from flash or
   PSRAM**, or with IRQ handlers/vector table in flash or PSRAM. It is safe in
-  `board_init_clk()` only because every app is `copy_to_ram` (invariant 2) and
+  `board_init_clk()` only because every app executes from RAM (invariant 2) and
   core1 has not started yet. Keep that in mind if a future app is ever linked
   to run from flash.
 - **The linker's PSRAM region ORIGIN is `0x11000000` — the same address as

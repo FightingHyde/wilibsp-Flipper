@@ -30,4 +30,7 @@ Rail readings come from the display CPU's own monitors (GPIO 45 = VIO,
 GPIO 41 = Vout, 2:1 divider), so no external meter is needed to see the rail
 switch.
 
+The LCD shows each VREF selection and the final GPIO readback state. RTT keeps
+the detailed numeric rail measurements.
+
 The main CPU must be running the stock FreeWili 2 firmware (OneWili bridge).

@@ -384,7 +384,7 @@ static void dispatch(char *line)
     reply("ERR unknown\n");
 }
 
-void agentio_init(void)
+void agentio_shadow_begin(void)
 {
     /* Refuse to alias: the shadow window is only safe while the linker's PSRAM
      * allocations stop below it. Requires an app to place ~7.7 MB there, but
@@ -394,6 +394,11 @@ void agentio_init(void)
         memset(s_shadow, 0, AGENTIO_SHADOW_SIZE);
         agentio_shadow_init(&s_shadow_state, s_shadow, ST7796_W, ST7796_H);
     }
+}
+
+void agentio_init(void)
+{
+    agentio_shadow_begin();
     s_line_len = 0;
     s_kb = 0;
 

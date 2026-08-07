@@ -11,5 +11,6 @@ add_executable(retrochat
     modem/afsk_demod.c)
 target_include_directories(retrochat PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(retrochat freewili2_bsp pico_multicore pico_unique_id)
-pico_set_binary_type(retrochat copy_to_ram)   # required: firmware runs from SRAM
-pico_add_extra_outputs(retrochat)
+fw2_display_app(retrochat
+    VERSION 003
+    DESCRIPTION "Acoustic text chat using the speaker and microphones")

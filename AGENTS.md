@@ -1,5 +1,11 @@
 # AGENTS.md — guide for AI agents and contributors
 
+> **Reading requirement:** read this file through EOF before changing code.
+> It is intentionally long. If your tool truncates it, continue from the last
+> line in additional chunks until EOF. Do not treat the first chunk as the
+> complete contract. External app repositories must link here from their own
+> root `AGENTS.md`; see `docs/app-project-setup.md`.
+
 This file orients coding agents (Claude Code, Cursor, Copilot, etc.) and new
 human contributors working in `wilibsp`. It is intentionally dense: the goal
 is that you do **not** have to rediscover the hard-won facts this project was
@@ -58,7 +64,7 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
-| `fw install-app <uf2>` | Find MAIN with fwFinder, mount its SD reader on the PC, copy the UF2 to `/apps/`, safely unmount, and return the SD to MAIN       |
+| `fw install-app <uf2>` | Find MAIN with fwFinder, mount its SD reader on the PC, copy the UF2 to `/apps/` (or `--folder path` beneath it), safely unmount, and return the SD to MAIN |
 | `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel (verified on hardware 2026-07-26) |
 | `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold) |
 | `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch)              |
@@ -80,6 +86,16 @@ QSPI flash (`0x10000000..0x11000000`). `fw install-app` checks every block and
 fails before mounting the SD if the file is malformed, mixed-target, or touches
 flash. The DISPLAY recovery loader is fused in OTP; a write at flash base
 replaces the stock DISPLAY firmware, not the loader.
+
+The UF2 is a required distribution artifact of the app contract. Every
+published app release must attach its validated `.uf2` as a downloadable
+release artifact in the app's repository; a source tag or ephemeral CI
+artifact by itself is insufficient.
+
+If an app's source repository is public, the app contract also requires an
+on-device About screen showing the app version and repository link. Holding
+PAGE for five seconds is the conventional unobtrusive way to reveal it, though
+another discoverable gesture or menu entry is acceptable.
 
 After `fw new-app <name>` you must add
 `add_subdirectory(apps/<name>)` to the top-level `CMakeLists.txt` yourself —
@@ -118,9 +134,10 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
    both are required — the first only stores values, the second writes the QMI
    register). Without the `clk_peri` re-source the SPI peripheral has no clock
    and the LCD is dead. Every app binary is
-   `pico_set_binary_type(<app> copy_to_ram)`: all code+data+bss live in 512 KB
-   SRAM, so watch the RAM budget — large buffers (framebuffers, capture clips)
-   belong in PSRAM (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the
+   `fw2_display_app()` selects the SDK's `no_flash` binary type: UF2 payloads,
+   code, initialized data, and ordinary bss live in 512 KB SRAM, so watch the RAM budget —
+   large buffers (framebuffers, capture clips) can be explicitly placed in
+   PSRAM (`PSRAM_BASE 0x11000000`, APS6404L, 8 MB, brought up by the
    SDK's `hardware_psram` at boot from `bsp/boards/freewili2.h`). Allocate them
    with `__uninitialized_psram("group")`, **never** by casting `PSRAM_BASE` —
    the linker's PSRAM region starts at that same address, so a raw pointer
@@ -205,6 +222,73 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
     region. Verify symbol addresses plus every UF2 target block, then verify an
     observable runtime milestone on hardware. See `docs/app-storage.md`.
 
+
+## The FW2App contract
+
+Firmware built by this BSP must be identifiable, versioned, self-describing
+and recoverable without a human touching the board.
+
+**1. Every app declares `VERSION` and `DESCRIPTION`.**
+
+```cmake
+fw2_display_app(bench_display
+    VERSION 001
+    DESCRIPTION "Bench console for the display drivers: charger, RTC, ...")
+```
+
+`VERSION` is exactly three digits, bumped by hand. `DESCRIPTION` is required
+and has no default — it is what the App Explorer shows a human choosing what
+to flash. `NAME` defaults to the CMake target.
+Missing or malformed is a configure error.
+
+**2. Holding HOME for five seconds must leave the RAM app.**
+
+Call `fw2_app_recovery_init()` immediately after `board_init()`, then call
+`fw2_app_recovery_task()` on every main-loop path, including retry and fatal
+error loops. A five-second HOME hold performs a normal watchdog reboot so the
+DISPLAY recovery loader can resume its flash application. Do not call
+`reset_usb_boot()`; entering BOOTSEL defeats unattended recovery.
+
+Synchronous OneWili calls can otherwise hide the keyboard link for their full
+timeout. Apps using `ow_open_fwgui()` must include
+`input/app_recovery_onewili.h` and open the link with
+`fw2_app_recovery_open_onewili(&dev)`. Apps using
+`ow_sd_*` must also call `fw2_app_recovery_wrap_sd()`. The wrappers split
+transport waits into short polls and service HOME between them. Physical HOME
+state also expires when fresh keyboard status frames stop arriving; explicit
+AgentIO holds remain active until released.
+
+**3. Every image carries a `fw2app_uf2_info_t` record.**
+`bsp/common/uf2_info.h` defines a 216-byte record with the 8-byte magic
+`FW2AINFO`, name, description, version, optional build identity, and CRC32.
+`tools/check_app_uf2.py` validates the final UF2 POST_BUILD and fails the
+build if the record is missing, duplicated, or wrong.
+
+Three things a reader needs to know about it:
+
+- **Every FW2 app contains exactly one record.** This BSP targets the DISPLAY
+  CPU; FW2 RAM apps do not embed a second processor's image.
+- **Build identity is optional.** The current examples leave `build` and
+  `build_ts` empty; consumers must accept that representation.
+- **Nothing in the firmware references the record**, so it is held by
+  `-Wl,--undefined=fw2app_uf2_info`. `__attribute__((retain))` is ignored by
+  this toolchain, and the SDK's KEEP'd `.binary_info.keep.*` section is wrong
+  here — picotool walks that region as an array of pointers.
+
+
+The wrapper proves that metadata was declared and survived the linker. It
+cannot prove `fw2_app_recovery_task()` is reached on every runtime path;
+review and hardware verification must cover that part.
+
+**4. LCD apps establish the whole surface before enabling the backlight.**
+
+A loadable app inherits the panel RAM left by the previous firmware. After
+`st7796_init()`, clear or fully render all `480x320` pixels before calling
+`board_backlight_set(1)` or making partial draws. The normal pattern is
+`st7796_fill_screen(background)`. If AgentIO capture is enabled, call
+`agentio_init()` first so the clear also initializes its shadow framebuffer.
+Headless and DVI-only apps are unaffected.
+
 ## Peripheral power zones — request rails BEFORE touching hardware
 
 The board's power sequencer boots with most peripheral rails **OFF**
@@ -218,12 +302,12 @@ The pattern for any app using a peripheral (see `docs/drivers/power.md`
 for the full zone map, per-zone cautions, and the protocol):
 
 ```c
-uartkbd_init();                                       // link to the sequencer
+fw2_app_recovery_init();                              // keyboard link + HOME recovery
 picpwr_keep_awake(picpwr_zone_bit(PICPWR_ZONE_AUDIO)); // or _CAN, _RGB_LEDS, ...
 // rails take ~1 s to apply; THEN init the peripheral
 ...
 while (true) {
-    uartkbd_task();
+    fw2_app_recovery_task();
     picpwr_task();     // re-asserts your rails if the sequencer drops them
     ...
 }

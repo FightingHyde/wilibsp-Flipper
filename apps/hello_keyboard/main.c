@@ -193,25 +193,30 @@ static void handle_fw2kb_events(void)
 int main(void)
 {
     board_init();
+    fw2_app_recovery_init();
     size_t psram_bytes = psram_init();
     if (psram_bytes < (size_t)ST7796_W * ST7796_H * 2) {
         DIAG("hello_keyboard: PSRAM absent/too small (%u bytes) - halting\n",
              (unsigned)psram_bytes);
-        for (;;) tight_loop_contents();
+        for (;;) {
+            fw2_app_recovery_task();
+            tight_loop_contents();
+        }
     }
     st7796_init();
-    board_backlight_set(1);
+    fw2_app_about_use_lcd();
     ft6336_init();
-    uartkbd_init();
     fw2kb_init(&s_kb);
     agentio_init();
     agentio_bind_keyboard(&s_kb);
+    st7796_fill_screen(COL_BLACK);
+    board_backlight_set(1);
     fw2kb_set_touch_threshold(&s_kb, TOUCH_SPLIT);
     DIAG("hello_keyboard up\n");
 
     uint64_t next_link_log = 0;
     while (true) {
-        uartkbd_task();
+        fw2_app_recovery_task();
         handle_buttons();
         handle_touch();
         handle_fw2kb_events();
@@ -231,7 +236,7 @@ int main(void)
                  (unsigned)uartkbd_flags());
             next_link_log = now + 1000000;
         }
-        sleep_ms(2);
+        fw2_app_recovery_sleep_ms(2);
         agentio_task();
     }
 }

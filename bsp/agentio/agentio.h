@@ -31,6 +31,7 @@
 void agentio_init(void);
 void agentio_task(void);
 void agentio_bind_keyboard(fw2kb_t *kb);
+void agentio_shadow_begin(void);
 
 /* Called by st7796.c only — mirrors panel writes into the shadow framebuffer. */
 void agentio_shadow_note_window(int x0, int y0, int x1, int y1);
@@ -45,6 +46,7 @@ const uint8_t *agentio_shadow_fb(void);
 static inline void agentio_init(void) {}
 static inline void agentio_task(void) {}
 static inline void agentio_bind_keyboard(fw2kb_t *kb) { (void)kb; }
+static inline void agentio_shadow_begin(void) {}
 static inline void agentio_shadow_note_window(int x0, int y0, int x1, int y1)
 { (void)x0; (void)y0; (void)x1; (void)y1; }
 static inline void agentio_shadow_note_pixels(const uint8_t *b, size_t n)

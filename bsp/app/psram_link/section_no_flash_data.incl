@@ -1,0 +1,59 @@
+SECTIONS
+{
+    .data :
+    {
+        __data_start__ = .;
+        *(vtable) *(.time_critical*) *(.data*) *(.sdata*)
+        . = ALIGN(4);
+        PROVIDE_HIDDEN(__emutls_array_start = .);
+        *(.*.__emutls_v.*)
+        PROVIDE_HIDDEN(__emutls_array_end = .);
+        *(.after_data.*)
+        . = ALIGN(4);
+        PROVIDE_HIDDEN(__mutex_array_start = .);
+        KEEP(*(SORT(.mutex_array.*))) KEEP(*(.mutex_array))
+        PROVIDE_HIDDEN(__mutex_array_end = .);
+        PROVIDE_HIDDEN(__bothinit_array_start = .);
+        PROVIDE_HIDDEN(__preinit_array_start = .);
+        KEEP(*(SORT(.preinit_array.*))) KEEP(*(.preinit_array))
+        PROVIDE_HIDDEN(__preinit_array_end = .);
+        PROVIDE_HIDDEN(__init_array_start = .);
+        KEEP(*(SORT(.init_array.*))) KEEP(*(.init_array))
+        PROVIDE_HIDDEN(__init_array_end = .);
+        PROVIDE_HIDDEN(__bothinit_array_end = .);
+        PROVIDE_HIDDEN(__fini_array_start = .);
+        *(SORT(.fini_array.*)) *(.fini_array)
+        PROVIDE_HIDDEN(__fini_array_end = .);
+        PROVIDE(__dso_handle = 0);
+        *(.jcr)
+        . = ALIGN(4);
+    } > RAM AT> PSRAM
+    __data_load_source__ = LOADADDR(.data);
+    .tdata :
+    {
+        . = ALIGN(4);
+        *(.tdata .tdata.* .gnu.linkonce.td.*)
+        __tdata_end = .;
+    } > RAM AT> PSRAM
+    PROVIDE(__data_end__ = .);
+    __etext = LOADADDR(.data);
+    .tbss (NOLOAD) :
+    {
+        __bss_start__ = .;
+        __tls_base = .;
+        *(.tbss .tbss.* .gnu.linkonce.tb.*) *(.tcommon)
+        . = ALIGN(4);
+        __tls_end = .;
+    } > RAM
+    .tbss_space (NOLOAD) : { . = __bss_start__ + SIZEOF(.tbss); } > RAM
+    .bss (NOLOAD) :
+    {
+        . = ALIGN(4);
+        __tbss_end = .;
+        *(SORT_BY_ALIGNMENT(SORT_BY_NAME(.bss*))) *(COMMON)
+        PROVIDE(__global_pointer$ = . + 2K);
+        *(.sbss*)
+        . = ALIGN(4);
+        __bss_end__ = .;
+    } > RAM
+}

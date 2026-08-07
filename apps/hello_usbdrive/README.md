@@ -1,16 +1,14 @@
 # hello_usbdrive
 
-On-hardware smoke test for the harvested USB host MSC stack + FatFs
-(`bsp/usbhost`): it powers the HP1/HP2 USB-A ports, polls the host stack for
-a thumb drive, and on every mount edge prints the volume root listing plus a
-count of `*.ir` files found there — a real FatFs read exercise, not just a
-mount handshake.
+On-hardware smoke test for the USB host mass-storage stack and FatFs. It powers
+the USB-A ports, waits for a FAT32 drive, and counts *.ir files in its root.
+The LCD shows waiting, mounted, file-count, and removal states; RTT carries the
+complete root listing.
 
     fw build hello_usbdrive
     fw flash hello_usbdrive
     fw rtt
 
-Pass criteria: with a FAT32 stick seated, `mount OK` and the root listing
-appear within a few seconds of boot, followed by the `.ir file(s) at volume
-root` count; unplugging prints `drive removed` and a replug remounts
-cleanly. With no stick seated, only the port-power DIAG appears — no crash.
+A seated drive should mount within a few seconds. Pulling and reinserting it
+should produce a removal followed by a clean remount. With no drive, the app
+remains safely on the waiting screen.

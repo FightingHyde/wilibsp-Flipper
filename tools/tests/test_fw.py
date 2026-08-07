@@ -2,6 +2,16 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import fw
 
+class FakeSerial:
+    def __init__(self, replies):
+        self.replies = iter(replies)
+        self.writes = []
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def reset_input_buffer(self): pass
+    def write(self, data): self.writes.append(data)
+    def readline(self): return next(self.replies, b"")
+
 def app_uf2(address=0x11000000, block_no=0, num_blocks=1):
     import struct
     data = bytearray(512)
@@ -50,7 +60,60 @@ def test_install_app_copies_to_apps_ejects_and_returns_sd(tmp_path, monkeypatch)
     assert (volume / "apps" / "mesh.uf2").read_bytes() == app_uf2()
     assert calls == [("COM7", True), ("eject", volume), ("COM7", False)]
 
-def test_install_app_leaves_sd_with_pc_when_mount_is_not_identified(tmp_path, monkeypatch):
+def test_install_app_copies_to_nested_apps_folder(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    volume = tmp_path / "card"
+    volume.mkdir()
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setattr(fw, "_mounted_volumes", set)
+    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
+    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: None)
+    monkeypatch.setattr(fw, "_eject_volume", lambda path: None)
+
+    fw.install_app(source, folder="beta/radio")
+
+    assert (volume / "apps" / "beta" / "radio" / "mesh.uf2").read_bytes() == app_uf2()
+
+def test_windows_unmount_does_not_use_shell_eject():
+    source = pathlib.Path(fw.__file__).read_text()
+    body = source[source.index("def _eject_volume"):source.index("def _app_subfolder")]
+    assert "FSCTL_LOCK_VOLUME" in body or "0x00090018" in body
+    assert "FSCTL_DISMOUNT_VOLUME" in body or "0x00090020" in body
+    assert "InvokeVerb('Eject')" not in body
+
+def test_run_app_sends_apps_relative_path(monkeypatch):
+    wire = FakeSerial([b"noise\n", b"[a\\r 1]\n"])
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setitem(sys.modules, "serial", type("SerialModule", (), {
+        "Serial": staticmethod(lambda *args, **kwargs: wire)
+    }))
+    fw.run_app("wilibsp/hello_psram_exec.uf2", "FW123")
+    assert wire.writes == [b"\x02a\\r wilibsp/hello_psram_exec.uf2\n"]
+
+def test_run_app_rejects_unsafe_paths_before_hardware(monkeypatch):
+    monkeypatch.setattr(fw, "_fwfinder_main_port",
+                        lambda serial: (_ for _ in ()).throw(AssertionError("hardware touched")))
+    for path in ("", "../bad.uf2", "/bad.uf2", "team//bad.uf2", "team" + chr(92) + "bad.uf2", "bad.bin"):
+        try:
+            fw.run_app(path)
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+
+def test_install_app_rejects_escaping_or_ambiguous_subfolders_before_hardware(tmp_path, monkeypatch):
+    source = tmp_path / "mesh.uf2"
+    source.write_bytes(app_uf2())
+    monkeypatch.setattr(fw, "_fwfinder_main_port",
+                        lambda serial: (_ for _ in ()).throw(AssertionError("hardware touched")))
+    for folder in ("../outside", "/outside", "team//app", "team\\app"):
+        try:
+            fw.install_app(source, folder=folder)
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
+
+def test_install_app_returns_sd_when_no_volume_ever_mounted(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"
     source.write_bytes(app_uf2())
     calls = []
@@ -64,7 +127,7 @@ def test_install_app_leaves_sd_with_pc_when_mount_is_not_identified(tmp_path, mo
         assert False, "expected RuntimeError"
     except RuntimeError as exc:
         assert "no card" in str(exc)
-    assert calls == [True]
+    assert calls == [True, False]
 
 def test_install_app_ejects_then_returns_sd_after_copy_failure(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"

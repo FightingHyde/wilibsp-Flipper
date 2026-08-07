@@ -12,6 +12,7 @@
 #include "platform/diag.h"
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
+#include <stdio.h>
 
 #define VID_W 480
 #define VID_H 288
@@ -27,6 +28,32 @@ static const uint16_t BARS[8] = {
     0x001F, // blue
     0x0000, // black
 };
+
+static void paint_test_pattern(void);
+
+static void draw_about(const char *name, uint16_t version,
+                       const char *repository) {
+    uint16_t *base = hstx_dvi_region_base();
+    int stride = hstx_dvi_video_stride();
+    int w = hstx_dvi_video_w();
+    int h = hstx_dvi_region_h();
+    char line[48];
+    dvi_osd_fill_rect(base, stride, w, h, 0, 0, w, h, 0x0000);
+    dvi_osd_text(base, stride, w, h, 12, 20, 3, 0xFFFF, 0x0000, "ABOUT");
+    dvi_osd_text(base, stride, w, h, 12, 70, 2, 0x07E0, 0x0000, name);
+    snprintf(line, sizeof line, "VERSION %03u", (unsigned)version);
+    dvi_osd_text(base, stride, w, h, 12, 105, 2, 0xFFFF, 0x0000, line);
+    dvi_osd_text(base, stride, w, h, 12, 150, 1, 0x07FF, 0x0000,
+                 "SOURCE:");
+    dvi_osd_text(base, stride, w, h, 12, 175, 1, 0xFFFF, 0x0000,
+                 repository);
+}
+
+static void restore_dvi(void) {
+    paint_test_pattern();
+    dvi_osd_text_msg(hstx_dvi_region_base(), hstx_dvi_video_stride(),
+                     VID_W, hstx_dvi_region_h(), VID_H, "FREEWILI 2 DVI");
+}
 
 // Paint 8 vertical colour bars across the video region, then a 1px white box
 // outline around the whole region, into the strided native-endian framebuffer.
@@ -52,8 +79,10 @@ static void paint_test_pattern(void) {
 
 int main(void) {
     board_init_clk(252000);             // 252 MHz -> exact 25.2 MHz DVI pixel clock
+    fw2_app_recovery_init();
                                         // (the board default via board_init() is 250)
     hstx_dvi_init(VID_W, VID_H);        // start the scanout (480x288 in 640x480)
+    fw2_app_about_set_renderer(draw_about, restore_dvi);
     DIAG("hello_dvi: DVI up, clk_hstx=%u kHz\n",
          (unsigned)(clock_get_hz(clk_hstx) / 1000u));
 
@@ -64,15 +93,16 @@ int main(void) {
     int rstride = hstx_dvi_video_stride();
     int region_h = hstx_dvi_region_h();
     dvi_osd_text_msg(rbase, rstride, VID_W, region_h, VID_H, "FREEWILI 2 DVI");
-    sleep_ms(1500);
+    fw2_app_recovery_sleep_ms(1500);
 
     // Animate a progress bar across the bottom margin so motion proves the
     // scanout is live and reading the framebuffer continuously.
     uint32_t t = 0;
     for (;;) {
+        fw2_app_recovery_task();
         dvi_osd_progress(rbase, rstride, VID_W, region_h, VID_H,
                          t % 101u, 100u, "DVI");
         t++;
-        sleep_ms(50);
+        fw2_app_recovery_sleep_ms(50);
     }
 }

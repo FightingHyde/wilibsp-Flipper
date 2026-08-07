@@ -34,3 +34,30 @@ void ws2812_show(void) {
     }
     sleep_us(300);   // WS2812 reset/latch (>= 280 us)
 }
+
+static void temporary_zero_frame(PIO pio, uint sm) {
+    for (uint i = 0; i < WS2812_NUM_PIXELS; i++)
+        pio_sm_put_blocking(pio, sm, 0);
+    /* put_blocking() only waits for FIFO space. Drain it, allow the final
+     * 24-bit word to leave the OSR, then provide the >=280 us latch time. */
+    while (!pio_sm_is_tx_fifo_empty(pio, sm)) tight_loop_contents();
+    sleep_us(330);
+}
+
+void ws2812_clear_once(PIO pio, uint gpio) {
+    uint sm = (uint)pio_claim_unused_sm(pio, true);
+    uint offset = pio_add_program(pio, &ws2812_program);
+    ws2812_program_init(pio, sm, offset, gpio, 800000.0f, false);
+    gpio_set_outover(gpio, GPIO_OVERRIDE_INVERT);
+
+    /* The first frame after starting this strip is hardware-known not to
+     * reach every pixel reliably. The second establishes OFF everywhere. */
+    temporary_zero_frame(pio, sm);
+    temporary_zero_frame(pio, sm);
+
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_restart(pio, sm);
+    pio_remove_program(pio, &ws2812_program, offset);
+    pio_sm_unclaim(pio, sm);
+}

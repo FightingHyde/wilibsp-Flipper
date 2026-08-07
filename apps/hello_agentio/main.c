@@ -20,25 +20,34 @@ static const char *k_labels[] = {
 int main(void)
 {
     board_init();
+    fw2_app_recovery_init();
     size_t psram_bytes = psram_init();
     if (psram_bytes < (size_t)ST7796_W * ST7796_H * 2) {
         DIAG("hello_agentio: PSRAM absent/too small (%u bytes) - halting\n",
              (unsigned)psram_bytes);
-        for (;;) tight_loop_contents();
+        for (;;) {
+            fw2_app_recovery_task();
+            tight_loop_contents();
+        }
     }
     st7796_init();
+    fw2_app_about_use_lcd();
     ft6336_init();
-    board_backlight_set(1);
 
     // agentio_init() zeroes the shadow framebuffer, so it must run before
     // anything we want a capture to see is drawn — otherwise the pattern
     // below is erased from the shadow the instant it starts (see
     // docs/drivers/agentio.md, "three app calls").
     fw2kb_t kb;
-    uartkbd_init();
     fw2kb_init(&kb);
     agentio_init();
     agentio_bind_keyboard(&kb);
+
+    // A loadable app inherits the panel's pixels from the previous firmware.
+    // Establish a deterministic physical and AgentIO-shadow background before
+    // drawing the deliberately partial test pattern below.
+    st7796_fill_screen(BE(0x0000));
+    board_backlight_set(1);
 
     const int n = (int)(sizeof k_bars / sizeof k_bars[0]);
     const int bar_w = ST7796_W / n;
@@ -53,7 +62,7 @@ int main(void)
     DIAG("hello_agentio: pattern drawn, agentio up\n");
 
     for (;;) {
-        uartkbd_task();
+        fw2_app_recovery_task();
 
         uartkbd_event_t bev;
         while (uartkbd_next_event(&bev)) {

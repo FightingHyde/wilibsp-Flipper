@@ -1,4 +1,5 @@
 add_executable(hello_cc1101 main.c)
 target_link_libraries(hello_cc1101 freewili2_bsp)
-pico_set_binary_type(hello_cc1101 copy_to_ram)
-pico_add_extra_outputs(hello_cc1101)
+fw2_display_app(hello_cc1101
+    VERSION 003
+    DESCRIPTION "CC1101 radio probe, RSSI scan, and GDO capture test")

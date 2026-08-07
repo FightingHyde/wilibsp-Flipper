@@ -167,6 +167,17 @@ uint16_t uartkbd_parse_inject(const uartkbd_parser_t *p)
     return p->inject_mask;
 }
 
+bool uartkbd_button_down_fresh_state(uint16_t buttons, uint16_t injected,
+                                     uartkbd_btn_t button, bool have_frame,
+                                     uint32_t now_ms, uint32_t frame_ms,
+                                     uint32_t max_age_ms)
+{
+    uint16_t bit = (uint16_t)(1u << button);
+    if (injected & bit) return true;
+    if (!have_frame || (uint32_t)(now_ms - frame_ms) > max_age_ms) return false;
+    return (buttons & bit) != 0;
+}
+
 void uartkbd_parse_resync(uartkbd_parser_t *p)
 {
     p->state = 0;

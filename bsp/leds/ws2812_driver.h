@@ -16,4 +16,6 @@ void    ws2812_clear(void);
 void    ws2812_set_brightness(uint8_t level);
 uint8_t ws2812_get_brightness(void);
 void    ws2812_show(void);
+/* Clear the strip without retaining PIO resources or requesting its rail. */
+void    ws2812_clear_once(PIO pio, uint gpio);
 #endif

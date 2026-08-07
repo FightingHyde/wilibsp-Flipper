@@ -1,7 +1,9 @@
 /* picpwr — see picpwr.h. */
 #include "picpwr.h"
+#include "app_recovery.h"
 #include "uartkbd.h"
 #include "pico/stdlib.h"
+#include "platform/diag.h"
 
 /* One command per rail walk: the device applies a mask as a staggered
  * walk (~1 s) and does not parse the link while walking. Commands are
@@ -32,11 +34,11 @@ static bool rails_stable(uint32_t *rails_out)
     uint32_t a, b;
     if (!picpwr_rails(&a)) return false;
     uint32_t seen = uartkbd_frames();
-    absolute_time_t until = make_timeout_time_ms(2500);
+    unsigned remaining = 250;
     while (uartkbd_frames() == seen) {           /* wait for a fresh frame */
-        if (time_reached(until)) return false;
-        uartkbd_task();
-        sleep_ms(10);
+        if (remaining-- == 0) return false;
+        fw2_app_recovery_task();
+        busy_wait_us_32(10000);
     }
     if (!picpwr_rails(&b)) return false;
     if (b != a) return false;
@@ -89,6 +91,40 @@ bool picpwr_keep_awake(uint32_t zone_bits)
     zone_bits &= PICPWR_ZONE_MASK_ALL;
     s_desired |= zone_bits;
     return picpwr_ensure_awake(zone_bits);
+}
+
+static void service_wait_ms(uint32_t duration_ms)
+{
+    while (duration_ms != 0) {
+        fw2_app_recovery_task();
+        uint32_t slice = duration_ms < 10u ? duration_ms : 10u;
+        busy_wait_us_32(slice * 1000u);
+        duration_ms -= slice;
+    }
+}
+
+bool picpwr_cycle(uint32_t zone_bits)
+{
+    zone_bits &= PICPWR_ZONE_MASK_ALL;
+    uint32_t rails;
+    if (!zone_bits || !rails_stable(&rails)) return false;
+    rails &= PICPWR_ZONE_MASK_ALL;
+    uint32_t active = rails & zone_bits;
+    if (!active) return true;
+
+    picpwr_cfg_t cfg = s_cache;
+    cfg.awake = rails & ~active;
+    if (!picpwr_send(&cfg)) return false;
+    DIAG("picpwr: cycle off sent\n");
+    service_wait_ms(PICPWR_SPACING_MS);
+    DIAG("picpwr: cycle off settled\n");
+
+    cfg.awake = rails;
+    if (!picpwr_send(&cfg)) return false;
+    DIAG("picpwr: cycle restore sent\n");
+    service_wait_ms(PICPWR_SPACING_MS);
+    DIAG("picpwr: cycle restore settled\n");
+    return true;
 }
 
 void picpwr_task(void)
