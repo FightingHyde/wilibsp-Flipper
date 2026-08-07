@@ -204,6 +204,8 @@ def test_lcd_about_is_modal_without_blocking_the_app_loop():
 def test_psram_bootstrap_keeps_interrupts_off_during_qmi_retime():
     bootstrap = (ROOT / "bsp/app/psram_bootstrap.c").read_text(encoding="utf-8")
     assert bootstrap.index("board_init_psram();") < bootstrap.index('"cpsie i"')
+    assert bootstrap.index("spin_locks_reset();") < bootstrap.index("runtime_init_default_alarm_pool();")
+    assert bootstrap.index("runtime_init_default_alarm_pool();") < bootstrap.index("board_init_psram();")
 
 
 def test_psram_bootstrap_makes_app_board_init_skip_qmi_retime():
