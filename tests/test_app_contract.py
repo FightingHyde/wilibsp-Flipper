@@ -141,22 +141,28 @@ def test_board_startup_clears_persistent_leds_without_power_request():
     assert "picpwr" not in helper
 
 
-def test_declared_power_zones_are_serviced_and_requested_before_use():
-    """A declared keep-awake request must be maintained and precede init."""
+def test_declared_power_zones_are_runtime_enforced():
+    """Target metadata, not handwritten app loops, owns rail maintenance."""
+    cmake = (ROOT / "bsp/CMakeLists.txt").read_text(encoding="utf-8")
+    generator = (ROOT / "tools/gen_uf2_info.py").read_text(encoding="utf-8")
+    recovery = (ROOT / "bsp/input/app_recovery.c").read_text(encoding="utf-8")
+    assert '"POWER_ZONES"' in cmake
+    assert "--power-zones" in cmake
+    assert "fw2app_power_zones" in generator
+    assert "picpwr_keep_awake(fw2app_power_zones)" in recovery
+    assert "picpwr_task();" in recovery
+
+
+def test_lcd_apps_declare_display_power_zone():
     offenders = []
     for source_path in APPS.glob("*/main.c"):
         source = source_path.read_text(encoding="utf-8")
-        request_at = source.find("picpwr_keep_awake(")
-        if request_at < 0:
+        if "st7796_init()" not in source:
             continue
-        if "picpwr_task()" not in source:
-            offenders.append(source_path.parent.name + ": not serviced")
-        peripheral_inits = [source.find(token) for token in (
-            "codec_nau88c10_init()", "cc1101_init()", "ws2812_init(")]
-        peripheral_inits = [at for at in peripheral_inits if at >= 0]
-        if peripheral_inits and request_at > min(peripheral_inits):
-            offenders.append(source_path.parent.name + ": request follows init")
-    assert not offenders, "invalid power-zone lifecycle: " + ", ".join(offenders)
+        cmake = (source_path.parent / "CMakeLists.txt").read_text(encoding="utf-8")
+        if "POWER_ZONES" not in cmake or "DISPLAY" not in cmake:
+            offenders.append(source_path.parent.name)
+    assert not offenders, "LCD apps missing DISPLAY power declaration: " + ", ".join(offenders)
 
 
 def test_every_app_registers_an_about_surface():

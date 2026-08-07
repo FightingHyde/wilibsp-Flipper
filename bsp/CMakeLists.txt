@@ -141,7 +141,7 @@ set(FW2_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}/../tools" CACHE PATH
     "Directory containing FW2 build validation tools")
 
 function(fw2_display_app target)
-    cmake_parse_arguments(PARSE_ARGV 1 APP "" "NAME;VERSION;DESCRIPTION;REPOSITORY" "")
+    cmake_parse_arguments(PARSE_ARGV 1 APP "" "NAME;VERSION;DESCRIPTION;REPOSITORY" "POWER_ZONES")
     if(NOT APP_NAME)
         set(APP_NAME "${target}")
     endif()
@@ -172,6 +172,34 @@ function(fw2_display_app target)
 
     string(REGEX REPLACE "^0+([0-9])" "\\1" _version_number
            "${APP_VERSION}")
+    set(_power_zone_mask 0)
+    foreach(_zone IN LISTS APP_POWER_ZONES)
+        if(_zone STREQUAL "SENSORS")
+            set(_zone_number 1)
+        elseif(_zone STREQUAL "DISPLAY")
+            set(_zone_number 2)
+        elseif(_zone STREQUAL "AUDIO")
+            set(_zone_number 3)
+        elseif(_zone STREQUAL "SUBGHZ")
+            set(_zone_number 4)
+        elseif(_zone STREQUAL "SDCARD")
+            set(_zone_number 7)
+        elseif(_zone STREQUAL "USB_HUB")
+            set(_zone_number 8)
+        elseif(_zone STREQUAL "RGB_LEDS")
+            set(_zone_number 10)
+        elseif(_zone STREQUAL "ANALOG")
+            set(_zone_number 11)
+        elseif(_zone STREQUAL "NFC_RFID")
+            set(_zone_number 13)
+        elseif(_zone STREQUAL "CAN")
+            set(_zone_number 15)
+        else()
+            message(FATAL_ERROR "${target}: unknown POWER_ZONES entry '${_zone}'")
+        endif()
+        math(EXPR _power_zone_mask
+             "${_power_zone_mask} | (1 << (${_zone_number} - 1))")
+    endforeach()
     set(_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}_uf2_info")
     file(MAKE_DIRECTORY "${_dir}")
     add_custom_command(
@@ -182,6 +210,7 @@ function(fw2_display_app target)
                 --name "${APP_NAME}"
                 --description "${APP_DESCRIPTION}"
                 --repository "${APP_REPOSITORY}"
+                --power-zones "${_power_zone_mask}"
         DEPENDS "${FW2_TOOLS_DIR}/gen_uf2_info.py"
         COMMENT "Generating FW2 app metadata for ${target}"
         VERBATIM)

@@ -236,6 +236,20 @@ fw2_display_app(bench_display
     DESCRIPTION "Bench console for the display drivers: charger, RTC, ...")
 ```
 
+Declare every switched rail the app uses with `POWER_ZONES`; valid names are
+`SENSORS`, `DISPLAY`, `AUDIO`, `SUBGHZ`, `SDCARD`, `USB_HUB`, `RGB_LEDS`,
+`ANALOG`, `NFC_RFID`, and `CAN`. The declaration is emitted into the app's
+linked metadata. `fw2_app_recovery_init()` requests the declared mask and
+`fw2_app_recovery_task()` maintains it, so apps must not duplicate that
+lifecycle by hand. For example:
+
+```cmake
+fw2_display_app(radio_ui
+    VERSION 001
+    DESCRIPTION "Sub-GHz monitor"
+    POWER_ZONES SENSORS DISPLAY SUBGHZ RGB_LEDS)
+```
+
 `VERSION` is exactly three digits, bumped by hand. `DESCRIPTION` is required
 and has no default — it is what the App Explorer shows a human choosing what
 to flash. `NAME` defaults to the CMake target.
