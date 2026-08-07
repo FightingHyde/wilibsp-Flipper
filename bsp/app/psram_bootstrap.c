@@ -9,6 +9,7 @@ extern uint32_t __vectors;
 typedef void (*init_fn_t)(void);
 extern init_fn_t __init_array_start[], __init_array_end[];
 extern void board_init_psram(void);
+extern void runtime_init_mutex(void);
 extern int main(void);
 
 static __attribute__((section(".sram_bootstrap")))
@@ -33,6 +34,7 @@ void fw2_psram_bootstrap(void) {
      * runtime services RAM apps rely on without running the full cold-boot
      * runtime initializer (which would reset QMI beneath this PSRAM image). */
     spin_locks_reset();
+    runtime_init_mutex();
     runtime_init_default_alarm_pool();
     DIAG("psram: bootstrap copied\n");
     /* The second-stage loader enters with interrupts disabled.  Keep them

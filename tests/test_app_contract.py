@@ -216,6 +216,8 @@ def test_psram_bootstrap_keeps_interrupts_off_during_qmi_retime():
     bootstrap = (ROOT / "bsp/app/psram_bootstrap.c").read_text(encoding="utf-8")
     assert bootstrap.index("board_init_psram();") < bootstrap.index('"cpsie i"')
     assert bootstrap.index("spin_locks_reset();") < bootstrap.index("runtime_init_default_alarm_pool();")
+    assert bootstrap.index("spin_locks_reset();") < bootstrap.index("runtime_init_mutex();")
+    assert bootstrap.index("runtime_init_mutex();") < bootstrap.index("runtime_init_default_alarm_pool();")
     assert bootstrap.index("runtime_init_default_alarm_pool();") < bootstrap.index("board_init_psram();")
 
 
