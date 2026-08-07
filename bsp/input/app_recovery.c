@@ -46,6 +46,18 @@ void fw2_app_recovery_init(void) {
     if (fw2app_power_zones != 0u) {
         picpwr_keep_awake(fw2app_power_zones);
         DIAG("app: required power zones=0x%x\n", fw2app_power_zones);
+        uint32_t rails = 0;
+        uint32_t waited_ms = 0;
+        while (!picpwr_rails(&rails) ||
+               (rails & fw2app_power_zones) != fw2app_power_zones) {
+            fw2_app_recovery_task();
+            busy_wait_us_32(10000u);
+            waited_ms += 10u;
+            if (waited_ms % 5000u == 0u)
+                DIAG("app: waiting for power zones have=0x%x need=0x%x\n",
+                     rails, fw2app_power_zones);
+        }
+        DIAG("app: power zones ready=0x%x\n", rails);
     }
 }
 

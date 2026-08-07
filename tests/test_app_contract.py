@@ -150,6 +150,8 @@ def test_declared_power_zones_are_runtime_enforced():
     assert "--power-zones" in cmake
     assert "fw2app_power_zones" in generator
     assert "picpwr_keep_awake(fw2app_power_zones)" in recovery
+    assert "(rails & fw2app_power_zones) != fw2app_power_zones" in recovery
+    assert "app: power zones ready" in recovery
     assert "picpwr_task();" in recovery
 
 

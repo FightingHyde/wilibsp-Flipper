@@ -17,7 +17,8 @@ TX); `bsp/input/picpwr_frame.*` is the pure frame/mask logic
 Applications declare their required rails in `fw2_display_app()` or
 `fw2_psram_app()` with `POWER_ZONES`. The generated `fw2app_power_zones`
 metadata is consumed by app recovery: initialization registers the complete
-mask and every recovery task poll also services `picpwr_task()`. Driver code
+mask and waits for live status to confirm every declared rail before returning;
+every recovery task poll also services `picpwr_task()`. Driver code
 that dynamically acquires an optional rail may still use `picpwr_keep_awake()`
 directly, but ordinary app main loops should use the declaration.
 
