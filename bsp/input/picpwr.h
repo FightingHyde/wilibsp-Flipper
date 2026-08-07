@@ -51,6 +51,11 @@ bool picpwr_ensure_awake(uint32_t zone_bits);
  * loop, and the driver handles the rest. */
 bool picpwr_keep_awake(uint32_t zone_bits);
 
+/* Power-cycle selected rails while preserving every other live rail. If a
+ * selected rail is already off it remains off. Blocks through the two
+ * sequencer walks while continuing to service app recovery/status input. */
+bool picpwr_cycle(uint32_t zone_bits);
+
 /* Poll from the application's main loop (cheap; acts at most once per
  * received status frame). Re-asserts rails registered with
  * picpwr_keep_awake() when they read as off — debounced over two

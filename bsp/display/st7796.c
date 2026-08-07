@@ -102,13 +102,13 @@ void st7796_init(void) {
     // Init sequence — byte-for-byte the reference's EXECUTED 480x320 path. Note: the
     // reference sends NO power/porch/gamma commands for this panel size (that block
     // is commented out in st7789.cpp), and its mySleepa() doubles every delay.
-    cmd(0x01, NULL, 0); sleep_ms(300);                                  // SWRESET (ref mySleepa(150) = 300 ms)
+    cmd(0x01, NULL, 0); busy_wait_us_32(300000);                         // SWRESET (ref mySleepa(150) = 300 ms)
     cmd(0x35, NULL, 0);                                                 // TEON
     cmd(0x3A, (const uint8_t[]){0x05}, 1);                              // COLMOD: 16bpp
 
     cmd(0x21, NULL, 0);                                                 // INVON
     cmd(0x11, NULL, 0);                                                 // SLPOUT
-    cmd(0x29, NULL, 0); sleep_ms(200);                                  // DISPON (ref mySleepa(100) = 200 ms)
+    cmd(0x29, NULL, 0); busy_wait_us_32(200000);                         // DISPON (ref mySleepa(100) = 200 ms)
     cmd(0x2A, (const uint8_t[]){0x00, 0x00, 0x01, 0xDF}, 4);            // CASET 0..479
     cmd(0x2B, (const uint8_t[]){0x00, 0x00, 0x01, 0x3F}, 4);            // RASET 0..319
     cmd(0x36, (const uint8_t[]){0x2C}, 1);                              // MADCTL

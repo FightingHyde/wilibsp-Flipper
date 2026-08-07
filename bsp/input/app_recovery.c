@@ -60,7 +60,7 @@ void fw2_app_recovery_sleep_ms(uint32_t duration_ms) {
     while (duration_ms != 0) {
         fw2_app_recovery_task();
         const uint32_t slice_ms = duration_ms < 10u ? duration_ms : 10u;
-        sleep_ms(slice_ms);
+        busy_wait_us_32(slice_ms * 1000u);
         duration_ms -= slice_ms;
     }
     fw2_app_recovery_task();

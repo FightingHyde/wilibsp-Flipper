@@ -1,0 +1,16 @@
+SECTIONS
+{
+    .text :
+    {
+        __logical_binary_start = .;
+        KEEP(*(.vectors))
+        KEEP(*(.binary_info_header))
+        __binary_info_header_end = .;
+        KEEP(*(.embedded_block))
+        __embedded_block_end = .;
+        __reset_start = .;
+        KEEP(*(.reset))
+        __reset_end = .;
+        . = ALIGN(4);
+    } > PSRAM
+}

@@ -82,10 +82,15 @@
 // SPI1 bus, park CC1101 CS, backlight off, I2C1
 // @ 400 kHz, ioexp_init.
 void board_init(void);
+void board_init_psram(void);
 
 // Same bring-up at a caller-chosen system clock (kHz; use an even MHz so downstream
 // /2 dividers like DVI's clk_hstx are exact). board_init() == board_init_clk(BOARD_SYS_CLOCK_KHZ).
 void board_init_clk(uint32_t sys_clock_khz);
+
+// Peripheral-only bring-up for a PSRAM app launched by the DISPLAY loader.
+// Preserves the loader-owned clock and QMI/PSRAM configuration.
+void board_init_inherited(void);
 
 // Backlight: 0 = off, nonzero = on (plain GPIO).
 void board_backlight_set(uint8_t level);

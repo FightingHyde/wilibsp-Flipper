@@ -15,9 +15,9 @@ def test_every_app_uses_contract_wrapper():
     missing = []
     for app in app_dirs():
         cmake = (app / "CMakeLists.txt").read_text(encoding="utf-8")
-        if "fw2_display_app(" not in cmake:
+        if "fw2_display_app(" not in cmake and "fw2_psram_app(" not in cmake:
             missing.append(app.name)
-    assert not missing, "apps missing fw2_display_app(): " + ", ".join(missing)
+    assert not missing, "apps missing a FW2 app wrapper: " + ", ".join(missing)
 
 
 def test_metadata_generator_creates_its_clean_build_directory():

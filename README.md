@@ -44,6 +44,7 @@ fw flash            # program it over the debug probe (OpenOCD)
 fw rtt              # stream live SEGGER RTT diagnostics
 fw install-app app.uf2  # copy a loadable app to SD:/apps and return the card to MAIN
 fw install-app app.uf2 --folder beta/radio  # install to SD:/apps/beta/radio
+fw run-app beta/radio/app.uf2  # launch the installed app without navigating on-device
 ```
 
 (`tools/fw` is the POSIX launcher, `tools/fw.cmd` the Windows one; both just

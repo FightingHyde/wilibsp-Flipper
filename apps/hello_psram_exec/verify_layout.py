@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 PSRAM = range(0x11000000, 0x11800000)
-SRAM = range(0x20000000, 0x20070000)
+SRAM = range(0x20000000, 0x20082001)
 
 
 def symbols(elf: str, objdump: str) -> dict[str, int]:
@@ -28,10 +28,12 @@ def main() -> int:
     found = symbols(sys.argv[1], sys.argv[2])
     expected = {
         "__vectors": PSRAM,
-        "psram_reset": PSRAM,
-        "psram_main": PSRAM,
-        "psram_delay": PSRAM,
-        "sram_bootstrap": SRAM,
+        "_entry_point": PSRAM,
+        "main": PSRAM,
+        "fw2_psram_bootstrap": SRAM,
+        "board_init_psram": SRAM,
+        "set_sys_clock_pll": SRAM,
+        "psram_reinitialize": SRAM,
         "__StackTop": SRAM,
     }
     for name, region in expected.items():
@@ -68,7 +70,7 @@ def main() -> int:
         raise SystemExit(f"layout check: initial SP 0x{initial_sp:08x} is not SRAM")
     if (reset & ~1) not in PSRAM or not (reset & 1):
         raise SystemExit(f"layout check: reset vector 0x{reset:08x} is not Thumb PSRAM")
-    print("layout check: PSRAM code + SRAM bootstrap + PSRAM-only UF2 verified")
+    print("layout check: PSRAM app + SRAM SDK/BSP bootstrap + PSRAM-only UF2")
     return 0
 
 

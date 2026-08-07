@@ -2,6 +2,16 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import fw
 
+class FakeSerial:
+    def __init__(self, replies):
+        self.replies = iter(replies)
+        self.writes = []
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def reset_input_buffer(self): pass
+    def write(self, data): self.writes.append(data)
+    def readline(self): return next(self.replies, b"")
+
 def app_uf2(address=0x11000000, block_no=0, num_blocks=1):
     import struct
     data = bytearray(512)
@@ -64,6 +74,32 @@ def test_install_app_copies_to_nested_apps_folder(tmp_path, monkeypatch):
     fw.install_app(source, folder="beta/radio")
 
     assert (volume / "apps" / "beta" / "radio" / "mesh.uf2").read_bytes() == app_uf2()
+
+def test_windows_unmount_does_not_use_shell_eject():
+    source = pathlib.Path(fw.__file__).read_text()
+    body = source[source.index("def _eject_volume"):source.index("def _app_subfolder")]
+    assert "FSCTL_LOCK_VOLUME" in body or "0x00090018" in body
+    assert "FSCTL_DISMOUNT_VOLUME" in body or "0x00090020" in body
+    assert "InvokeVerb('Eject')" not in body
+
+def test_run_app_sends_apps_relative_path(monkeypatch):
+    wire = FakeSerial([b"noise\n", b"[a\\r 1]\n"])
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setitem(sys.modules, "serial", type("SerialModule", (), {
+        "Serial": staticmethod(lambda *args, **kwargs: wire)
+    }))
+    fw.run_app("wilibsp/hello_psram_exec.uf2", "FW123")
+    assert wire.writes == [b"\x02a\\r wilibsp/hello_psram_exec.uf2\n"]
+
+def test_run_app_rejects_unsafe_paths_before_hardware(monkeypatch):
+    monkeypatch.setattr(fw, "_fwfinder_main_port",
+                        lambda serial: (_ for _ in ()).throw(AssertionError("hardware touched")))
+    for path in ("", "../bad.uf2", "/bad.uf2", "team//bad.uf2", "team" + chr(92) + "bad.uf2", "bad.bin"):
+        try:
+            fw.run_app(path)
+            assert False, "expected ValueError"
+        except ValueError:
+            pass
 
 def test_install_app_rejects_escaping_or_ambiguous_subfolders_before_hardware(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"

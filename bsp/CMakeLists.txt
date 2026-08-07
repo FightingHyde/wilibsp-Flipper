@@ -208,3 +208,25 @@ function(fw2_display_app target)
                 "$<TARGET_FILE_DIR:${target}>/${target}.uf2"
         VERBATIM)
 endfunction()
+
+function(fw2_psram_app target)
+    fw2_display_app(${target} ${ARGN})
+    set(_link_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}_app_link")
+    file(WRITE ${_link_dir}/memory_aliases_no_flash.incl [=[
+REGION_ALIAS("TEXT_STORE", PSRAM);
+REGION_ALIAS("RAM_STORE", PSRAM);
+REGION_ALIAS("PSRAM_STORE", PSRAM);
+REGION_ALIAS("XIP_RAM_STORE", XIP_RAM);
+REGION_ALIAS("SCRATCH_X_STORE", SCRATCH_X);
+REGION_ALIAS("SCRATCH_Y_STORE", SCRATCH_Y);
+]=])
+    target_sources(${target} PRIVATE
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/app/psram_startup.S
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/app/psram_bootstrap.c)
+    target_compile_definitions(${target} PRIVATE
+        PICO_CRT0_NO_RESET_SECTION=1)
+    pico_add_linker_script_override_path(${target}
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/app/psram_link
+        FILES memory_aliases_no_flash.incl sections_no_flash.incl section_no_flash_text.incl
+              section_no_flash_rodata.incl section_no_flash_data.incl)
+endfunction()
