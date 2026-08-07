@@ -77,9 +77,15 @@ void fw2_app_about_task(void) {
         return;
     s_shown = true;
     if (s_restore == lcd_restore) {
+        /* Stop the producer first, then drain the DMA transaction already in
+         * flight. Otherwise an LVGL partial flush can finish after About is
+         * drawn and overwrite an arbitrary strip of the modal page. */
+        st7796_set_write_suppressed(true);
+        st7796_flush_wait();
         const uint8_t *screen = agentio_shadow_fb();
         if (screen)
             memcpy(s_lcd_backup, screen, sizeof s_lcd_backup);
+        st7796_set_write_suppressed(false);
     }
     const fw2app_uf2_info_t *info =
         (const fw2app_uf2_info_t *)fw2app_uf2_info;

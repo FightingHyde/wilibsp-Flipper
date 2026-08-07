@@ -194,6 +194,9 @@ def test_lcd_about_is_modal_without_blocking_the_app_loop():
     display = (ROOT / "bsp/display/st7796.c").read_text(encoding="utf-8")
     assert "st7796_set_write_suppressed(true)" in about
     assert "st7796_set_write_suppressed(false)" in about
+    modal = about[about.index("s_shown = true;"):about.index("const fw2app_uf2_info_t")]
+    assert modal.index("st7796_set_write_suppressed(true)") < modal.index("st7796_flush_wait()")
+    assert modal.index("st7796_flush_wait()") < modal.index("memcpy(s_lcd_backup")
     for function in ("st7796_fill_screen", "st7796_fill_rect",
                      "st7796_blit_rect", "st7796_draw_text",
                      "st7796_flush_async"):
