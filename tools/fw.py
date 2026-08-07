@@ -576,7 +576,10 @@ def run_rtt(seconds=0):
                 data = sock.recv(4096)
                 if not data:
                     break
-                sys.stdout.write(data.decode("ascii", "replace"))
+                # Keep RTT diagnostics printable even on Windows legacy
+                # consoles, where U+FFFD from Python's "replace" handler is
+                # not representable in the active cp1252 stream encoding.
+                sys.stdout.write(data.decode("ascii", "replace").replace("\ufffd", "?"))
                 sys.stdout.flush()
             except socket.timeout:
                 pass
