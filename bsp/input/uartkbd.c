@@ -87,6 +87,7 @@ static void synth_frame(void)
     bool    had_charger = s_parser.charger_valid;
     uint8_t had_flags   = s_parser.flags;
     bool    had_status  = s_parser.status_valid;
+    uint32_t had_frames = s_parser.frames;
     uint8_t had_raw[sizeof s_parser.status_raw];
     memcpy(had_raw, s_parser.status_raw, sizeof had_raw);
 
@@ -95,6 +96,7 @@ static void synth_frame(void)
     s_parser.charger_valid = had_charger;
     s_parser.flags         = had_flags;
     s_parser.status_valid  = had_status;
+    s_parser.frames        = had_frames;
     memcpy(s_parser.status_raw, had_raw, sizeof had_raw);
 }
 
