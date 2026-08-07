@@ -6,8 +6,17 @@
 extern uint32_t __data_load_source__, __data_start__, __data_end__;
 extern uint32_t __bss_start__, __bss_end__;
 extern uint32_t __vectors;
+typedef void (*init_fn_t)(void);
+extern init_fn_t __preinit_array_start[], __preinit_array_end[];
+extern init_fn_t __init_array_start[], __init_array_end[];
 extern void board_init_psram(void);
 extern int main(void);
+
+static __attribute__((section(".sram_bootstrap")))
+void run_init_array(init_fn_t *begin, init_fn_t *end) {
+    while (begin < end)
+        (*begin++)();
+}
 
 __attribute__((section(".sram_bootstrap"), noreturn, used,
                optimize("no-tree-loop-distribute-patterns")))
@@ -33,6 +42,11 @@ void fw2_psram_bootstrap(void) {
      * that window would fetch instructions from the bus being reconfigured. */
     board_init_psram();
     __asm volatile("cpsie i" ::: "memory");
+    /* The normal SDK reset handler runs these before main(). PSRAM apps
+     * bypass that handler so it cannot reset QMI beneath their image. */
+    run_init_array(__preinit_array_start, __preinit_array_end);
+    run_init_array(__init_array_start, __init_array_end);
+    DIAG("psram: constructors complete\n");
     (void)main();
     for (;;) {}
 }
