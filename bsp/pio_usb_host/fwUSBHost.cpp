@@ -19,6 +19,10 @@ extern "C" {
 
 fwUSBHost obUSBHost;
 
+extern "C" uint32_t tusb_time_millis_api(void) {
+    return (uint32_t)(time_us_64() / 1000u);
+}
+
 fwUSBHost::fwUSBHost() {
 }
 
