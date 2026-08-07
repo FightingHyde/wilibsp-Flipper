@@ -199,3 +199,8 @@ def test_lcd_about_is_modal_without_blocking_the_app_loop():
                      "st7796_flush_async"):
         body = display[display.index("void " + function):]
         assert "s_write_suppressed" in body[:500]
+
+
+def test_psram_bootstrap_keeps_interrupts_off_during_qmi_retime():
+    bootstrap = (ROOT / "bsp/app/psram_bootstrap.c").read_text(encoding="utf-8")
+    assert bootstrap.index("board_init_psram();") < bootstrap.index('"cpsie i"')
