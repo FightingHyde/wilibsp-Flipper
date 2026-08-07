@@ -35,6 +35,14 @@ SD_HOST_COMMAND = r"h\x\k"
 RUN_APP_COMMAND = r"a\r"
 UF2_MAGIC = (0x0A324655, 0x9E5D5157, 0x0AB16F30)
 
+# DISPLAY memory map. The flash window holds the stock DISPLAY firmware, so a
+# loadable app must never target it; `fw install-app` and `fw flash` enforce the
+# same rule from one definition.
+QSPI_FLASH = (0x10000000, 0x11000000)
+APP_WINDOWS = (("SRAM", 0x20000000, 0x20070000),
+               ("PSRAM", 0x11000000, 0x11800000))
+PT_LOAD = 1
+
 def check_app_uf2(path):
     """Fail closed unless every UF2 payload targets DISPLAY SRAM or PSRAM."""
     data = pathlib.Path(path).read_bytes()
@@ -61,11 +69,9 @@ def check_app_uf2(path):
         seen_blocks.add(block_no)
         if flags & 1 or size == 0:
             continue
-        if 0x10000000 <= address < 0x11000000:
+        if QSPI_FLASH[0] <= address < QSPI_FLASH[1]:
             raise ValueError(f"UF2 block {index} targets QSPI flash at 0x{address:08x}")
-        windows = (("SRAM", 0x20000000, 0x20070000),
-                   ("PSRAM", 0x11000000, 0x11800000))
-        here = next((name for name, start, stop in windows
+        here = next((name for name, start, stop in APP_WINDOWS
                      if size <= 476 and start <= address and address + size <= stop), None)
         if here is None or (target is not None and here != target):
             raise ValueError(f"UF2 block {index} is outside or mixes app-memory windows")
@@ -484,8 +490,63 @@ def _openocd_base():
         cmd += ["-s", scripts]
     return cmd + ["-f", OPENOCD_CFG]
 
-def flash_command(app):
+def elf_load_segments(blob):
+    """Loadable (physical address, size) pairs from a 32-bit LE ELF.
+
+    Physical, not virtual: a `copy_to_ram` binary runs from SRAM but is STORED
+    in flash, and it is the stored address a debugger writes.
+    """
+    if blob[:4] != b"\x7fELF" or blob[4:6] != b"\x01\x01":
+        raise ValueError("expected a 32-bit little-endian ELF")
+    phoff = struct.unpack_from("<I", blob, 28)[0]
+    phentsize, phnum = struct.unpack_from("<HH", blob, 42)
+    if phentsize < 32 or phoff + phentsize * phnum > len(blob):
+        raise ValueError("ELF program-header table is truncated")
+    segments = []
+    for index in range(phnum):
+        kind, _off, _vaddr, paddr, filesz, _memsz, _flags, _align = \
+            struct.unpack_from("<8I", blob, phoff + index * phentsize)
+        if kind == PT_LOAD and filesz:
+            segments.append((paddr, filesz))
+    return sorted(segments)
+
+
+def flash_segments_in_qspi(blob):
+    """The loadable segments that would land in the DISPLAY firmware region."""
+    start, stop = QSPI_FLASH
+    return [(addr, size) for addr, size in elf_load_segments(blob)
+            if addr < stop and addr + size > start]
+
+
+def check_flash_elf(path):
+    """Fail closed unless every loadable segment stays out of QSPI flash.
+
+    Writing an ELF at flash base replaces the stock DISPLAY firmware. The
+    recovery loader is fused in OTP so the board still boots, but restoring the
+    firmware is a separate maintenance workflow — not something a build/flash
+    loop should do silently. `pico_set_binary_type(copy_to_ram)` is the usual
+    way to trip this: it runs from SRAM but is stored in flash.
+    """
+    offenders = flash_segments_in_qspi(pathlib.Path(path).read_bytes())
+    if not offenders:
+        return
+    where = ", ".join(f"0x{addr:08x}+{size}" for addr, size in offenders[:4])
+    raise ValueError(
+        f"{path} stores {len(offenders)} loadable segment(s) in QSPI flash "
+        f"({where}).\n"
+        "Programming it would REPLACE the stock DISPLAY firmware.\n"
+        "Build the app with fw2_display_app() so it targets SRAM or PSRAM, then\n"
+        "install it non-destructively with `fw install-app <app>.uf2`.\n"
+        "If replacing the DISPLAY firmware is genuinely what you want, re-run\n"
+        "with `fw flash --replace-display-firmware`.")
+
+
+def flash_command(app, replace_display_firmware=False):
     elf = f"build/apps/{app}/{app}.elf"
+    if not replace_display_firmware:
+        path = REPO_ROOT / elf
+        if path.exists():
+            check_flash_elf(path)
     return _openocd_base() + ["-c", f"program {elf} verify reset exit"]
 
 def rtt_command():
@@ -709,6 +770,10 @@ def main(argv=None):
     for name in ("build", "flash"):
         sp = sub.add_parser(name); sp.add_argument("app", nargs="?", default=DEFAULT_APP)
         sp.add_argument("--print", dest="show", action="store_true")
+        if name == "flash":
+            sp.add_argument("--replace-display-firmware", action="store_true",
+                            help="allow writing QSPI flash, replacing the stock "
+                                 "DISPLAY firmware (maintenance workflow only)")
     sp = sub.add_parser("configure")
     sp.add_argument("--clean", action="store_true", help="wipe build/ before configuring")
     sp.add_argument("--print", dest="show", action="store_true")
@@ -759,7 +824,15 @@ def main(argv=None):
         if not a.show and needs_configure():
             run_configure(clean=BUILD_DIR.exists())
         _run(build_command(a.app), a.show)
-    elif a.cmd == "flash": _run(flash_command(a.app), a.show)
+    elif a.cmd == "flash":
+        try:
+            command = flash_command(a.app, a.replace_display_firmware)
+        except ValueError as exc:
+            # This guard exists to be read, so print it rather than burying the
+            # actionable part under a traceback.
+            print(f"fw flash: refusing to program {a.app}\n{exc}", file=sys.stderr)
+            return 2
+        _run(command, a.show)
     elif a.cmd == "rtt":
         if a.show:
             _run(rtt_command(), True)

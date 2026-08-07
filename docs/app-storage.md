@@ -37,6 +37,14 @@ This prevents an app from replacing the stock DISPLAY firmware. DISPLAY's
 recovery loader itself is immutable OTP code, not a flash-resident region;
 firmware replacement is an explicit maintenance workflow, not app installation.
 
+`fw flash` enforces the same rule on the ELF it programs over the debug probe,
+so the two paths onto the device agree. A `fw2_display_app()` target is
+`no_flash` and loads into SRAM, so `fw flash` remains the normal debug loop for
+it. What `fw flash` now refuses is an image *stored* in flash — most often
+`pico_set_binary_type(copy_to_ram)`, which runs from SRAM but is stored at flash
+base, so programming it replaces the DISPLAY firmware without ever saying so.
+Deliberate firmware replacement needs `fw flash --replace-display-firmware`.
+
 ## Publishing apps
 
 The loadable `.uf2` is part of the FreeWili app contract. App repositories

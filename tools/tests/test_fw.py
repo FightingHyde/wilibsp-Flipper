@@ -421,3 +421,97 @@ def test_agentio_capture_surfaces_err_reply_instead_of_hanging(monkeypatch):
         assert False, "expected RuntimeError"
     except RuntimeError as e:
         assert "rect" in str(e)
+
+def elf(segments, phentsize=32):
+    """Minimal 32-bit LE ELF carrying the given (paddr, filesz) LOAD segments."""
+    import struct
+    phoff = 52
+    header = bytearray(52)
+    header[0:4] = b"\x7fELF"
+    header[4:6] = b"\x01\x01"
+    struct.pack_into("<I", header, 28, phoff)
+    struct.pack_into("<HH", header, 42, phentsize, len(segments))
+    table = bytearray()
+    body = bytearray()
+    for paddr, filesz in segments:
+        offset = phoff + phentsize * len(segments) + len(body)
+        table += struct.pack("<8I", 1, offset, paddr, paddr, filesz, filesz, 5, 0x1000)
+        body += bytes(filesz)
+    return bytes(header) + bytes(table) + bytes(body)
+
+
+def test_elf_load_segments_reports_physical_addresses():
+    # A copy_to_ram image RUNS from SRAM but is STORED in flash; the physical
+    # address is the one a debugger writes.
+    blob = elf([(0x10000000, 256)])
+    assert fw.elf_load_segments(blob) == [(0x10000000, 256)]
+
+
+def test_elf_load_segments_ignores_nobits():
+    import struct
+    blob = bytearray(elf([(0x20000000, 256)]))
+    struct.pack_into("<I", blob, 52 + 16, 0)          # filesz = 0 -> NOLOAD
+    assert fw.elf_load_segments(bytes(blob)) == []
+
+
+def test_elf_load_segments_rejects_non_elf():
+    import pytest
+    with pytest.raises(ValueError):
+        fw.elf_load_segments(b"not an elf at all")
+
+
+def test_flash_refuses_an_elf_stored_in_qspi_flash(tmp_path):
+    import pytest
+    path = tmp_path / "app.elf"
+    path.write_bytes(elf([(0x10000000, 512), (0x10000210, 4096)]))
+    with pytest.raises(ValueError) as excinfo:
+        fw.check_flash_elf(path)
+    message = str(excinfo.value)
+    assert "REPLACE the stock DISPLAY firmware" in message
+    assert "fw install-app" in message
+    assert "0x10000000" in message
+
+
+def test_flash_accepts_sram_and_psram_targets(tmp_path):
+    for address in (0x20000000, 0x11000000):
+        path = tmp_path / f"app_{address:08x}.elf"
+        path.write_bytes(elf([(address, 4096)]))
+        fw.check_flash_elf(path)                       # must not raise
+
+
+def test_flash_catches_a_segment_that_only_overlaps_flash(tmp_path):
+    import pytest
+    # Ends inside the window rather than starting in it.
+    path = tmp_path / "app.elf"
+    path.write_bytes(elf([(0x0FFFFF00, 0x200)]))
+    with pytest.raises(ValueError):
+        fw.check_flash_elf(path)
+
+
+def test_flash_command_is_guarded_by_default(tmp_path, monkeypatch):
+    import pytest
+    root = tmp_path
+    (root / "build" / "apps" / "boom").mkdir(parents=True)
+    (root / "build" / "apps" / "boom" / "boom.elf").write_bytes(
+        elf([(0x10000000, 512)]))
+    monkeypatch.setattr(fw, "REPO_ROOT", root)
+    with pytest.raises(ValueError):
+        fw.flash_command("boom")
+
+
+def test_flash_command_override_allows_firmware_replacement(tmp_path, monkeypatch):
+    root = tmp_path
+    (root / "build" / "apps" / "boom").mkdir(parents=True)
+    (root / "build" / "apps" / "boom" / "boom.elf").write_bytes(
+        elf([(0x10000000, 512)]))
+    monkeypatch.setattr(fw, "REPO_ROOT", root)
+    command = fw.flash_command("boom", replace_display_firmware=True)
+    assert "program build/apps/boom/boom.elf verify reset exit" in command
+
+
+def test_flash_command_without_a_build_still_produces_a_command(tmp_path, monkeypatch):
+    # Nothing built yet: let OpenOCD report the missing file rather than
+    # failing here with a confusing ELF-parse error.
+    monkeypatch.setattr(fw, "REPO_ROOT", tmp_path)
+    command = fw.flash_command("nothing_here")
+    assert any("nothing_here.elf" in part for part in command)
