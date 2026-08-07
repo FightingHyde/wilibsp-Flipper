@@ -60,7 +60,7 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `fw configure`      | Configure `build/` against the pinned Pico SDK + toolchain (`--clean` wipes it first). Rarely needed directly — `fw build` calls it.    |
 | `fw build [app]`    | Configure + build `apps/<app>` for the RP2350B target via `cmake --build --preset target --target <app>` (default app: `hello_display`) |
-| `fw flash [app]`    | Program `build/apps/<app>/<app>.elf` over the cmsis-dap debug probe via OpenOCD (`tools/openocd/freewili2.cfg`)                         |
+| `fw flash [app]`    | Program `build/apps/<app>/<app>.elf` over the cmsis-dap debug probe via OpenOCD (`tools/openocd/freewili2.cfg`). **Refuses an ELF whose loadable segments sit in QSPI flash** — that would replace the stock DISPLAY firmware. Prefer `fw install-app`; override with `--replace-display-firmware` |
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
@@ -86,6 +86,16 @@ QSPI flash (`0x10000000..0x11000000`). `fw install-app` checks every block and
 fails before mounting the SD if the file is malformed, mixed-target, or touches
 flash. The DISPLAY recovery loader is fused in OTP; a write at flash base
 replaces the stock DISPLAY firmware, not the loader.
+
+`fw flash` applies the same rule to the ELF it is about to program, refusing by
+default when any loadable segment lands in `0x10000000..0x11000000`. The trap it
+exists to catch is `pico_set_binary_type(copy_to_ram)`: that image RUNS from
+SRAM but is STORED in flash, so a debugger writes it at flash base and silently
+replaces the DISPLAY firmware. Build display apps with `fw2_display_app()` — it
+sets `no_flash` — and install them with `fw install-app`. `fw flash` on such an
+app writes SRAM only and stays non-destructive, which is why it remains the
+normal edit/flash/`fw rtt` loop. Pass `--replace-display-firmware` only when
+replacing the firmware is the actual intent.
 
 The UF2 is a required distribution artifact of the app contract. Every
 published app release must attach its validated `.uf2` as a downloadable

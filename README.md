@@ -40,7 +40,9 @@ falls back to the newest version installed under `~/.pico-sdk`.
 
 ```bash
 fw build            # configure + build apps/hello_display for the RP2350B target
-fw flash            # program it over the debug probe (OpenOCD)
+fw flash            # program it over the debug probe (OpenOCD); refuses an
+                    # image stored in flash, which would replace the
+                    # stock DISPLAY firmware
 fw rtt              # stream live SEGGER RTT diagnostics
 fw install-app app.uf2  # copy a loadable app to SD:/apps and return the card to MAIN
 fw install-app app.uf2 --folder beta/radio  # install to SD:/apps/beta/radio
