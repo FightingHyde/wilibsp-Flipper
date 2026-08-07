@@ -262,13 +262,21 @@ def _app_subfolder(folder):
 
 
 def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
-    """Hand the SD to the PC, copy + flush the UF2, then hand it back."""
-    source = pathlib.Path(uf2).resolve()
-    if source.suffix.lower() != ".uf2" or not source.is_file():
-        raise ValueError(f"expected an existing .uf2 file, got {uf2!r}")
-    target = check_app_uf2(source)
+    """Hand the SD to the PC once, copy + flush one or more UF2s, then return it."""
+    requested = list(uf2) if isinstance(uf2, (list, tuple)) else [uf2]
+    if not requested:
+        raise ValueError("at least one UF2 is required")
+    sources = [pathlib.Path(item).resolve() for item in requested]
+    for source in sources:
+        if source.suffix.lower() != ".uf2" or not source.is_file():
+            raise ValueError(f"expected an existing .uf2 file, got {str(source)!r}")
+    names = [source.name.lower() for source in sources]
+    if len(names) != len(set(names)):
+        raise ValueError("UF2 inputs must have distinct destination filenames")
+    targets = [check_app_uf2(source) for source in sources]
     folder_parts = _app_subfolder(folder)
-    print(f"verified {target} app: no QSPI-flash payloads")
+    for source, target in zip(sources, targets):
+        print(f"verified {source.name}: {target} app, no QSPI-flash payloads")
     port = port or _fwfinder_main_port(serial_number)
     baseline = _mounted_volumes()
     pc_selected = False
@@ -282,14 +290,17 @@ def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
         for part in folder_parts:
             apps /= part
         apps.mkdir(parents=True, exist_ok=True)
-        temporary = apps / (source.name + ".tmp")
-        shutil.copyfile(source, temporary)
-        # Windows' CRT rejects fsync() on a read-only descriptor. Open for
-        # update without changing the already-copied contents.
-        with temporary.open("r+b") as copied:
-            os.fsync(copied.fileno())
-        destination = apps / source.name
-        os.replace(temporary, destination)
+        destinations = []
+        for source in sources:
+            temporary = apps / (source.name + ".tmp")
+            shutil.copyfile(source, temporary)
+            # Windows' CRT rejects fsync() on a read-only descriptor. Open for
+            # update without changing the already-copied contents.
+            with temporary.open("r+b") as copied:
+                os.fsync(copied.fileno())
+            destination = apps / source.name
+            os.replace(temporary, destination)
+            destinations.append(destination)
         # fsync above drains the file; allow the removable-volume stack to
         # finish its bookkeeping before moving the hardware mux.  Do not ask
         # Windows to eject/unmount this reader: ownership is controlled by the
@@ -299,7 +310,8 @@ def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
         if pc_selected:
             _set_sd_host(port, False)
     if volume is not None:
-        print(f"installed {source.name} to {destination}")
+        for source, destination in zip(sources, destinations):
+            print(f"installed {source.name} to {destination}")
 
 def packbits_decode(data, units):
     """Decode PackBits-16 (see bsp/agentio/agentio_proto.h) into a list of
@@ -704,7 +716,7 @@ def main(argv=None):
     sp = sub.add_parser("test"); sp.add_argument("--print", dest="show", action="store_true")
     sp = sub.add_parser("new-app"); sp.add_argument("name")
     sp = sub.add_parser("install-app")
-    sp.add_argument("uf2", help="app UF2 to copy into /apps on the device SD card")
+    sp.add_argument("uf2", nargs="+", help="one or more app UF2s to copy in one SD handoff")
     sp.add_argument("--folder", help="relative subfolder under /apps (for example beta/team)")
     sp.add_argument("--device", help="fwFinder device serial (required when multiple devices are connected)")
     sp.add_argument("--port", help="explicit MAIN serial port if fwFinder cannot identify legacy hardware")

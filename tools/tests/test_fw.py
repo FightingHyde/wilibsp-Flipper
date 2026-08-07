@@ -75,6 +75,25 @@ def test_install_app_copies_to_nested_apps_folder(tmp_path, monkeypatch):
 
     assert (volume / "apps" / "beta" / "radio" / "mesh.uf2").read_bytes() == app_uf2()
 
+def test_install_app_batches_multiple_uf2s_in_one_handoff(tmp_path, monkeypatch):
+    first = tmp_path / "one.uf2"
+    second = tmp_path / "two.uf2"
+    first.write_bytes(app_uf2())
+    second.write_bytes(app_uf2(address=0x20000000))
+    volume = tmp_path / "card"
+    volume.mkdir()
+    calls = []
+    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
+    monkeypatch.setattr(fw, "_mounted_volumes", set)
+    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
+    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append(pc))
+
+    fw.install_app([first, second], folder="daver")
+
+    assert (volume / "apps" / "daver" / "one.uf2").read_bytes() == first.read_bytes()
+    assert (volume / "apps" / "daver" / "two.uf2").read_bytes() == second.read_bytes()
+    assert calls == [True, False]
+
 def test_windows_unmount_does_not_use_shell_eject():
     source = pathlib.Path(fw.__file__).read_text()
     body = source[source.index("def _eject_volume"):source.index("def _app_subfolder")]

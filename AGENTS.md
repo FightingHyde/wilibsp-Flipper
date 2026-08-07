@@ -64,7 +64,7 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
-| `fw install-app <uf2>` | Find MAIN with fwFinder, mount its SD reader on the PC, copy the UF2 to `/apps/` (or `--folder path` beneath it), safely unmount, and return the SD to MAIN |
+| `fw install-app <uf2> [<uf2> ...]` | Find MAIN with fwFinder, hand its SD reader to the PC, copy and flush one or more UF2s to `/apps/` (or `--folder path` beneath it), wait for writes to settle, and return the SD to MAIN without a Windows eject/unmount |
 | `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel (verified on hardware 2026-07-26) |
 | `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold) |
 | `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch)              |
