@@ -187,6 +187,8 @@ def test_about_release_restores_the_registered_surface():
     assert "s_restore();" in released
     assert "memcpy(s_lcd_backup" in about
     assert "st7796_blit_rect(" in about
+    assert "fw2_app_about_use_lcd_restore" in about
+    assert "s_shown && s_lcd_modal" in released
 
 
 def test_lcd_about_is_modal_without_blocking_the_app_loop():
