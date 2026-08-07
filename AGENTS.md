@@ -64,7 +64,7 @@ Windows one — both just call `python tools/fw.py "$@"`).
 | `fw rtt`            | Attach to the target and stream SEGGER RTT diagnostics (OpenOCD RTT server on port 9090)                                                |
 | `fw test`           | Configure + build + run the standalone host CTest tree in `tests/` (MinGW GCC + Ninja on Windows; no Pico SDK, no hardware)             |
 | `fw new-app <name>` | Scaffold `apps/<name>` by copying `apps/template` and rewriting the CMake target name                                                   |
-| `fw install-app <uf2>` | Find MAIN with fwFinder, mount its SD reader on the PC, copy the UF2 to `/apps/` (or `--folder path` beneath it), safely unmount, and return the SD to MAIN |
+| `fw install-app <uf2> [<uf2> ...]` | Find MAIN with fwFinder, hand its SD reader to the PC, copy and flush one or more UF2s to `/apps/` (or `--folder path` beneath it), wait for writes to settle, and return the SD to MAIN without a Windows eject/unmount |
 | `fw screenshot`     | Capture the screen to a PNG (`--surface lcd|dvi`, `--crop x,y,w,h`, `--scale N`) via the agentio RTT channel (verified on hardware 2026-07-26) |
 | `fw press <btn>`    | Inject a button press+release (`fw hold` / `fw release` for a sustained hold) |
 | `fw touch <x> <y>`  | Inject a touch tap (`--down` / `--up` for a sustained touch)              |
@@ -74,11 +74,12 @@ Add `--print` to `build`/`flash`/`rtt`/`test` to print the underlying
 command(s) instead of running them (useful for an agent to inspect what would
 run without touching hardware).
 
-Apps should put app-owned maps, logs, preferences, and similar data under
-`/appdata/<app-name>/` by default. This keeps the SD root tidy and makes file
-ownership obvious; it is a convenience convention, not a hard rule. User
-needs win when a root-level or otherwise shared path is appropriate. See
-`docs/app-storage.md`.
+Apps must put app-owned persistent data—preferences, saves, logs, generated
+maps, caches, and similar files—under `/appdata/<app-name>/`, creating that
+directory before the first write. Do not place app-owned files at the SD root
+or directly in `/appdata/`. User-selected exports and deliberately shared or
+interoperable files may live elsewhere when the UI or documentation makes
+that intent clear. See `docs/app-storage.md`.
 
 `/apps/` is a non-destructive DISPLAY launch surface. App UF2s may target only
 SRAM (`0x20000000..0x20070000`) or PSRAM (`0x11000000..0x11800000`), never
@@ -244,6 +245,20 @@ and recoverable without a human touching the board.
 fw2_display_app(bench_display
     VERSION 001
     DESCRIPTION "Bench console for the display drivers: charger, RTC, ...")
+```
+
+Declare every switched rail the app uses with `POWER_ZONES`; valid names are
+`SENSORS`, `DISPLAY`, `AUDIO`, `SUBGHZ`, `SDCARD`, `USB_HUB`, `RGB_LEDS`,
+`ANALOG`, `NFC_RFID`, and `CAN`. The declaration is emitted into the app's
+linked metadata. `fw2_app_recovery_init()` requests the declared mask and
+`fw2_app_recovery_task()` maintains it, so apps must not duplicate that
+lifecycle by hand. For example:
+
+```cmake
+fw2_display_app(radio_ui
+    VERSION 001
+    DESCRIPTION "Sub-GHz monitor"
+    POWER_ZONES SENSORS DISPLAY SUBGHZ RGB_LEDS)
 ```
 
 `VERSION` is exactly three digits, bumped by hand. `DESCRIPTION` is required

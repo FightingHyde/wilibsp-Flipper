@@ -25,6 +25,7 @@ AGENTIO_PORT = 9091          # RTT channel 1: agentio commands + pixels
 AGENTIO_CHANNEL = 1
 AGENTIO_MAGIC = b"FW2C"
 AGENTIO_HEADER_LEN = 18
+SD_HANDOFF_SETTLE_SECONDS = 2
 SURFACES = {"lcd": 0, "dvi": 1}
 # Button indices must match uartkbd_btn_t in bsp/input/uartkbd_parse.h.
 BUTTONS = ["grey", "yellow", "green", "blue", "red", "nav_center", "nav_up",
@@ -117,10 +118,21 @@ def _set_sd_host(port, to_pc, timeout=8):
     with serial.Serial(port, 1_000_000, timeout=0.2) as wire:
         wire.reset_input_buffer()
         wire.write(b"\x02" + command.encode("ascii") + b"\n")
+        pending = ""
         while time.monotonic() < deadline:
-            line = wire.readline().decode("utf-8", "replace").strip()
+            pending += wire.readline().decode("utf-8", "replace")
+            if "]" not in pending:
+                continue
+            line, pending = pending.split("]", 1)
+            line = line.strip() + "]"
+            if "[" in line:
+                line = line[line.rfind("["):]
             if not line.startswith("[" + SD_HOST_COMMAND + " "):
                 continue
+            # The state token may be "none" after returning the mux to MAIN
+            # when its immediate remount has not detected the card yet.  The
+            # final success flag reports whether the ownership change itself
+            # reached the hardware, which is the operation requested here.
             if line.endswith(" 1]"):
                 wire.write(b"\x02")       # leave firmware navigation at the root
                 return
@@ -137,7 +149,7 @@ def _app_path(path):
         raise ValueError("app path must name a .uf2 file")
     return "/".join(parts)
 
-def run_app(path, serial_number=None, timeout=15, port=None):
+def run_app(path, serial_number=None, timeout=120, port=None):
     path = _app_path(path)
     port = port or _fwfinder_main_port(serial_number)
     command = f"{RUN_APP_COMMAND} {path}"
@@ -149,15 +161,30 @@ def run_app(path, serial_number=None, timeout=15, port=None):
     with serial.Serial(port, 1_000_000, timeout=0.2) as wire:
         wire.reset_input_buffer()
         wire.write(b"\x02" + command.encode("ascii") + b"\n")
+        queued = False
+        pending = ""
         while time.monotonic() < deadline:
-            line = wire.readline().decode("utf-8", "replace").strip()
-            if not line.startswith("[" + RUN_APP_COMMAND + " "):
+            pending += wire.readline().decode("utf-8", "replace")
+            if "]" not in pending:
                 continue
-            if line.endswith(" 1]"):
+            line, pending = pending.split("]", 1)
+            line = line.strip() + "]"
+            if "[" in line:
+                line = line[line.rfind("["):]
+            if line.startswith("[" + RUN_APP_COMMAND + " "):
+                if not line.endswith(" 1]"):
+                    raise RuntimeError(f"device rejected {command!r}: {line}")
+                queued = True
+                continue
+            # The menu command only queues the blocking load.  MAIN reports
+            # its actual result later under response key "d" after the UART
+            # stub/transfer/launch sequence has completed.
+            if queued and line.startswith("[d "):
+                if not line.endswith(" 1]"):
+                    raise RuntimeError(f"device failed to launch {command!r}: {line}")
                 print(f"launched /apps/{path}")
                 return
-            raise RuntimeError(f"device rejected {command!r}: {line}")
-    raise RuntimeError(f"timeout waiting for MAIN to acknowledge {command!r}")
+    raise RuntimeError(f"timeout waiting for MAIN to launch {command!r}")
 
 def _mounted_volumes():
     """Mounted removable-volume roots. Kept small and dependency-free."""
@@ -241,62 +268,56 @@ def _app_subfolder(folder):
 
 
 def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
-    """Hand the SD to the PC, atomically copy UF2 into /apps, eject, hand it back."""
-    source = pathlib.Path(uf2).resolve()
-    if source.suffix.lower() != ".uf2" or not source.is_file():
-        raise ValueError(f"expected an existing .uf2 file, got {uf2!r}")
-    target = check_app_uf2(source)
+    """Hand the SD to the PC once, copy + flush one or more UF2s, then return it."""
+    requested = list(uf2) if isinstance(uf2, (list, tuple)) else [uf2]
+    if not requested:
+        raise ValueError("at least one UF2 is required")
+    sources = [pathlib.Path(item).resolve() for item in requested]
+    for source in sources:
+        if source.suffix.lower() != ".uf2" or not source.is_file():
+            raise ValueError(f"expected an existing .uf2 file, got {str(source)!r}")
+    names = [source.name.lower() for source in sources]
+    if len(names) != len(set(names)):
+        raise ValueError("UF2 inputs must have distinct destination filenames")
+    targets = [check_app_uf2(source) for source in sources]
     folder_parts = _app_subfolder(folder)
-    print(f"verified {target} app: no QSPI-flash payloads")
+    for source, target in zip(sources, targets):
+        print(f"verified {source.name}: {target} app, no QSPI-flash payloads")
     port = port or _fwfinder_main_port(serial_number)
     baseline = _mounted_volumes()
     pc_selected = False
     volume = None
-    unmounted = False
     try:
         _set_sd_host(port, True)
         pc_selected = True
+        time.sleep(SD_HANDOFF_SETTLE_SECONDS)
         volume = _wait_for_sd(baseline, timeout)
         apps = volume / "apps"
         for part in folder_parts:
             apps /= part
         apps.mkdir(parents=True, exist_ok=True)
-        temporary = apps / (source.name + ".tmp")
-        shutil.copyfile(source, temporary)
-        # Windows' CRT rejects fsync() on a read-only descriptor. Open for
-        # update without changing the already-copied contents.
-        with temporary.open("r+b") as copied:
-            os.fsync(copied.fileno())
-        destination = apps / source.name
-        os.replace(temporary, destination)
-        _eject_volume(volume)
-        unmounted = True
-    except BaseException as primary:
-        # Once a filesystem has mounted, never move the mux while it may still
-        # be live or dirty. Try one cleanup eject after copy/fsync/replace (or
-        # after an initial eject failure), and return ownership only when that
-        # succeeds. Otherwise leave the card with the PC: recoverable and much
-        # safer than corrupting it under a mounted host filesystem.
-        if volume is not None and not unmounted:
-            try:
-                _eject_volume(volume)
-                unmounted = True
-            except BaseException as cleanup:
-                raise RuntimeError(
-                    f"app install failed and {volume} could not be safely unmounted; "
-                    "SD remains assigned to the PC. Close open files, safely eject "
-                    "the volume, then return the SD to MAIN"
-                ) from primary
-        # If no volume ever appeared, there is no mounted filesystem to
-        # protect: return the mux to MAIN instead of stranding it with the PC.
-        # Once a volume did appear, retain the stricter eject-before-return
-        # rule above to avoid corruption.
-        if pc_selected and (unmounted or volume is None):
+        destinations = []
+        for source in sources:
+            temporary = apps / (source.name + ".tmp")
+            shutil.copyfile(source, temporary)
+            # Windows' CRT rejects fsync() on a read-only descriptor. Open for
+            # update without changing the already-copied contents.
+            with temporary.open("r+b") as copied:
+                os.fsync(copied.fileno())
+            destination = apps / source.name
+            os.replace(temporary, destination)
+            destinations.append(destination)
+        # fsync above drains the file; allow the removable-volume stack to
+        # finish its bookkeeping before moving the hardware mux.  Do not ask
+        # Windows to eject/unmount this reader: ownership is controlled by the
+        # FreeWili h\x\k command, and Windows eject races that handoff.
+        time.sleep(SD_HANDOFF_SETTLE_SECONDS)
+    finally:
+        if pc_selected:
             _set_sd_host(port, False)
-        raise
-    else:
-        _set_sd_host(port, False)
-        print(f"installed {source.name} to {destination}")
+    if volume is not None:
+        for source, destination in zip(sources, destinations):
+            print(f"installed {source.name} to {destination}")
 
 def packbits_decode(data, units):
     """Decode PackBits-16 (see bsp/agentio/agentio_proto.h) into a list of
@@ -616,7 +637,10 @@ def run_rtt(seconds=0):
                 data = sock.recv(4096)
                 if not data:
                     break
-                sys.stdout.write(data.decode("ascii", "replace"))
+                # Keep RTT diagnostics printable even on Windows legacy
+                # consoles, where U+FFFD from Python's "replace" handler is
+                # not representable in the active cp1252 stream encoding.
+                sys.stdout.write(data.decode("ascii", "replace").replace("\ufffd", "?"))
                 sys.stdout.flush()
             except socket.timeout:
                 pass
@@ -760,7 +784,7 @@ def main(argv=None):
     sp = sub.add_parser("test"); sp.add_argument("--print", dest="show", action="store_true")
     sp = sub.add_parser("new-app"); sp.add_argument("name")
     sp = sub.add_parser("install-app")
-    sp.add_argument("uf2", help="app UF2 to copy into /apps on the device SD card")
+    sp.add_argument("uf2", nargs="+", help="one or more app UF2s to copy in one SD handoff")
     sp.add_argument("--folder", help="relative subfolder under /apps (for example beta/team)")
     sp.add_argument("--device", help="fwFinder device serial (required when multiple devices are connected)")
     sp.add_argument("--port", help="explicit MAIN serial port if fwFinder cannot identify legacy hardware")
@@ -770,7 +794,7 @@ def main(argv=None):
     sp.add_argument("path", help="UF2 path relative to /apps")
     sp.add_argument("--device")
     sp.add_argument("--port")
-    sp.add_argument("--timeout", type=float, default=15)
+    sp.add_argument("--timeout", type=float, default=120)
 
     sp = sub.add_parser("screenshot")
     sp.add_argument("-o", "--out", default="screenshot.png")
