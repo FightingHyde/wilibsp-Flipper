@@ -175,6 +175,7 @@ function(fw2_display_app target)
     # initialized PSRAM data: the app installer deliberately rejects a UF2
     # that mixes SRAM and PSRAM payload blocks.
     set(_link_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}_app_link")
+    file(MAKE_DIRECTORY "${_link_dir}")
     file(WRITE "${_link_dir}/memory_aliases_no_flash.incl"
         "REGION_ALIAS(\"TEXT_STORE\", RAM);\n"
         "REGION_ALIAS(\"RAM_STORE\", RAM);\n"

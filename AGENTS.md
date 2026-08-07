@@ -214,7 +214,7 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
 ## The FW2App contract
 
 Firmware built by this BSP must be identifiable, versioned, self-describing
-and recoverable without a human touching the board. 
+and recoverable without a human touching the board.
 
 **1. Every app declares `VERSION` and `DESCRIPTION`.**
 
