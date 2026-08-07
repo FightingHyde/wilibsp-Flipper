@@ -7,7 +7,6 @@ extern uint32_t __data_load_source__, __data_start__, __data_end__;
 extern uint32_t __bss_start__, __bss_end__;
 extern uint32_t __vectors;
 typedef void (*init_fn_t)(void);
-extern init_fn_t __preinit_array_start[], __preinit_array_end[];
 extern init_fn_t __init_array_start[], __init_array_end[];
 extern void board_init_psram(void);
 extern int main(void);
@@ -44,7 +43,9 @@ void fw2_psram_bootstrap(void) {
     __asm volatile("cpsie i" ::: "memory");
     /* The normal SDK reset handler runs these before main(). PSRAM apps
      * bypass that handler so it cannot reset QMI beneath their image. */
-    run_init_array(__preinit_array_start, __preinit_array_end);
+    /* Do not run .preinit_array: Pico SDK runtime initializers live there
+     * and include cold-boot hardware setup that is unsafe for an inherited
+     * PSRAM image. .init_array contains the language-level constructors. */
     run_init_array(__init_array_start, __init_array_end);
     DIAG("psram: constructors complete\n");
     (void)main();

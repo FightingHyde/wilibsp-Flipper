@@ -215,12 +215,10 @@ def test_psram_bootstrap_keeps_interrupts_off_during_qmi_retime():
 
 def test_psram_bootstrap_runs_c_runtime_initializers_before_main():
     bootstrap = (ROOT / "bsp/app/psram_bootstrap.c").read_text(encoding="utf-8")
-    preinit = "run_init_array(__preinit_array_start, __preinit_array_end);"
     init = "run_init_array(__init_array_start, __init_array_end);"
-    assert preinit in bootstrap
     assert init in bootstrap
-    assert bootstrap.index("board_init_psram();") < bootstrap.index(preinit)
-    assert bootstrap.index(preinit) < bootstrap.index(init) < bootstrap.index("(void)main();")
+    assert "run_init_array(__preinit_array_start" not in bootstrap
+    assert bootstrap.index("board_init_psram();") < bootstrap.index(init) < bootstrap.index("(void)main();")
 
 
 def test_psram_bootstrap_makes_app_board_init_skip_qmi_retime():
