@@ -167,6 +167,16 @@ def test_lcd_apps_declare_display_power_zone():
     assert not offenders, "LCD apps missing DISPLAY power declaration: " + ", ".join(offenders)
 
 
+def test_native_and_pio_usb_hosts_do_not_export_the_same_hcd_init():
+    """TinyUSB owns hcd_init; the BSP-native MSC host must stay namespaced."""
+    header = (ROOT / "bsp/usbhost/usb_hcd.h").read_text(encoding="utf-8")
+    source = (ROOT / "bsp/usbhost/usb_hcd.c").read_text(encoding="utf-8")
+    assert "fw2_native_usb_hcd_init" in header
+    assert "fw2_native_usb_hcd_init" in source
+    assert "void        hcd_init(void)" not in header
+    assert "void hcd_init(void)" not in source
+
+
 def test_every_app_registers_an_about_surface():
     offenders = []
     for app in app_dirs():
