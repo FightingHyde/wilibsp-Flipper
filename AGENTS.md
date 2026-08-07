@@ -74,11 +74,12 @@ Add `--print` to `build`/`flash`/`rtt`/`test` to print the underlying
 command(s) instead of running them (useful for an agent to inspect what would
 run without touching hardware).
 
-Apps should put app-owned maps, logs, preferences, and similar data under
-`/appdata/<app-name>/` by default. This keeps the SD root tidy and makes file
-ownership obvious; it is a convenience convention, not a hard rule. User
-needs win when a root-level or otherwise shared path is appropriate. See
-`docs/app-storage.md`.
+Apps must put app-owned persistent data—preferences, saves, logs, generated
+maps, caches, and similar files—under `/appdata/<app-name>/`, creating that
+directory before the first write. Do not place app-owned files at the SD root
+or directly in `/appdata/`. User-selected exports and deliberately shared or
+interoperable files may live elsewhere when the UI or documentation makes
+that intent clear. See `docs/app-storage.md`.
 
 `/apps/` is a non-destructive DISPLAY launch surface. App UF2s may target only
 SRAM (`0x20000000..0x20070000`) or PSRAM (`0x11000000..0x11800000`), never
