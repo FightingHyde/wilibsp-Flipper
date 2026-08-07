@@ -1,6 +1,7 @@
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import fw
+fw.SD_HANDOFF_SETTLE_SECONDS = 0
 
 class FakeSerial:
     def __init__(self, replies):
@@ -43,7 +44,7 @@ def test_new_app_rejects_existing(tmp_path):
     except FileExistsError:
         pass
 
-def test_install_app_copies_to_apps_ejects_and_returns_sd(tmp_path, monkeypatch):
+def test_install_app_copies_to_apps_and_returns_sd_without_windows_eject(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"
     source.write_bytes(app_uf2())
     volume = tmp_path / "card"
@@ -53,12 +54,11 @@ def test_install_app_copies_to_apps_ejects_and_returns_sd(tmp_path, monkeypatch)
     monkeypatch.setattr(fw, "_mounted_volumes", lambda: {tmp_path / "old"})
     monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
     monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append((port, pc)))
-    monkeypatch.setattr(fw, "_eject_volume", lambda path: calls.append(("eject", path)))
 
     fw.install_app(source, "FW123")
 
     assert (volume / "apps" / "mesh.uf2").read_bytes() == app_uf2()
-    assert calls == [("COM7", True), ("eject", volume), ("COM7", False)]
+    assert calls == [("COM7", True), ("COM7", False)]
 
 def test_install_app_copies_to_nested_apps_folder(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"
@@ -104,6 +104,15 @@ def test_run_app_waits_for_deferred_loader_failure(monkeypatch):
     except RuntimeError as exc:
         assert "psram stub did not answer" in str(exc)
 
+
+def test_sd_host_waits_for_complete_slow_mount_response(monkeypatch):
+    wire = FakeSerial([b"[h\\x\\k ABC 9 ", b"main 1]\r\n"])
+    monkeypatch.setitem(sys.modules, "serial", type("SerialModule", (), {
+        "Serial": staticmethod(lambda *args, **kwargs: wire)
+    }))
+    fw._set_sd_host("COM7", False)
+    assert wire.writes == [b"\x02h\\x\\k 0\n", b"\x02"]
+
 def test_run_app_rejects_unsafe_paths_before_hardware(monkeypatch):
     monkeypatch.setattr(fw, "_fwfinder_main_port",
                         lambda serial: (_ for _ in ()).throw(AssertionError("hardware touched")))
@@ -142,7 +151,7 @@ def test_install_app_returns_sd_when_no_volume_ever_mounted(tmp_path, monkeypatc
         assert "no card" in str(exc)
     assert calls == [True, False]
 
-def test_install_app_ejects_then_returns_sd_after_copy_failure(tmp_path, monkeypatch):
+def test_install_app_returns_sd_after_copy_failure(tmp_path, monkeypatch):
     source = tmp_path / "mesh.uf2"
     source.write_bytes(app_uf2())
     volume = tmp_path / "card"
@@ -153,33 +162,13 @@ def test_install_app_ejects_then_returns_sd_after_copy_failure(tmp_path, monkeyp
     monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
     monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append(("host", pc)))
     monkeypatch.setattr(fw.shutil, "copyfile", lambda *args: (_ for _ in ()).throw(OSError("copy failed")))
-    monkeypatch.setattr(fw, "_eject_volume", lambda path: calls.append(("eject", path)))
 
     try:
         fw.install_app(source)
         assert False, "expected OSError"
     except OSError as exc:
         assert "copy failed" in str(exc)
-    assert calls == [("host", True), ("eject", volume), ("host", False)]
-
-def test_install_app_never_returns_sd_when_eject_fails(tmp_path, monkeypatch):
-    source = tmp_path / "mesh.uf2"
-    source.write_bytes(app_uf2())
-    volume = tmp_path / "card"
-    volume.mkdir()
-    calls = []
-    monkeypatch.setattr(fw, "_fwfinder_main_port", lambda serial: "COM7")
-    monkeypatch.setattr(fw, "_mounted_volumes", set)
-    monkeypatch.setattr(fw, "_wait_for_sd", lambda baseline, timeout: volume)
-    monkeypatch.setattr(fw, "_set_sd_host", lambda port, pc: calls.append(("host", pc)))
-    monkeypatch.setattr(fw, "_eject_volume", lambda path: (_ for _ in ()).throw(RuntimeError("busy")))
-
-    try:
-        fw.install_app(source)
-        assert False, "expected RuntimeError"
-    except RuntimeError as exc:
-        assert "remains assigned to the PC" in str(exc)
-    assert calls == [("host", True)]
+    assert calls == [("host", True), ("host", False)]
 
 def test_install_app_rejects_flash_before_touching_hardware(tmp_path, monkeypatch):
     source = tmp_path / "bad.uf2"

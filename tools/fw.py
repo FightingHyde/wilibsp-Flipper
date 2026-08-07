@@ -25,6 +25,7 @@ AGENTIO_PORT = 9091          # RTT channel 1: agentio commands + pixels
 AGENTIO_CHANNEL = 1
 AGENTIO_MAGIC = b"FW2C"
 AGENTIO_HEADER_LEN = 18
+SD_HANDOFF_SETTLE_SECONDS = 2
 SURFACES = {"lcd": 0, "dvi": 1}
 # Button indices must match uartkbd_btn_t in bsp/input/uartkbd_parse.h.
 BUTTONS = ["grey", "yellow", "green", "blue", "red", "nav_center", "nav_up",
@@ -111,10 +112,21 @@ def _set_sd_host(port, to_pc, timeout=8):
     with serial.Serial(port, 1_000_000, timeout=0.2) as wire:
         wire.reset_input_buffer()
         wire.write(b"\x02" + command.encode("ascii") + b"\n")
+        pending = ""
         while time.monotonic() < deadline:
-            line = wire.readline().decode("utf-8", "replace").strip()
+            pending += wire.readline().decode("utf-8", "replace")
+            if "]" not in pending:
+                continue
+            line, pending = pending.split("]", 1)
+            line = line.strip() + "]"
+            if "[" in line:
+                line = line[line.rfind("["):]
             if not line.startswith("[" + SD_HOST_COMMAND + " "):
                 continue
+            # The state token may be "none" after returning the mux to MAIN
+            # when its immediate remount has not detected the card yet.  The
+            # final success flag reports whether the ownership change itself
+            # reached the hardware, which is the operation requested here.
             if line.endswith(" 1]"):
                 wire.write(b"\x02")       # leave firmware navigation at the root
                 return
@@ -144,8 +156,15 @@ def run_app(path, serial_number=None, timeout=120, port=None):
         wire.reset_input_buffer()
         wire.write(b"\x02" + command.encode("ascii") + b"\n")
         queued = False
+        pending = ""
         while time.monotonic() < deadline:
-            line = wire.readline().decode("utf-8", "replace").strip()
+            pending += wire.readline().decode("utf-8", "replace")
+            if "]" not in pending:
+                continue
+            line, pending = pending.split("]", 1)
+            line = line.strip() + "]"
+            if "[" in line:
+                line = line[line.rfind("["):]
             if line.startswith("[" + RUN_APP_COMMAND + " "):
                 if not line.endswith(" 1]"):
                     raise RuntimeError(f"device rejected {command!r}: {line}")
@@ -243,7 +262,7 @@ def _app_subfolder(folder):
 
 
 def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
-    """Hand the SD to the PC, atomically copy UF2 into /apps, eject, hand it back."""
+    """Hand the SD to the PC, copy + flush the UF2, then hand it back."""
     source = pathlib.Path(uf2).resolve()
     if source.suffix.lower() != ".uf2" or not source.is_file():
         raise ValueError(f"expected an existing .uf2 file, got {uf2!r}")
@@ -254,10 +273,10 @@ def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
     baseline = _mounted_volumes()
     pc_selected = False
     volume = None
-    unmounted = False
     try:
         _set_sd_host(port, True)
         pc_selected = True
+        time.sleep(SD_HANDOFF_SETTLE_SECONDS)
         volume = _wait_for_sd(baseline, timeout)
         apps = volume / "apps"
         for part in folder_parts:
@@ -271,33 +290,15 @@ def install_app(uf2, serial_number=None, timeout=25, port=None, folder=None):
             os.fsync(copied.fileno())
         destination = apps / source.name
         os.replace(temporary, destination)
-        _eject_volume(volume)
-        unmounted = True
-    except BaseException as primary:
-        # Once a filesystem has mounted, never move the mux while it may still
-        # be live or dirty. Try one cleanup eject after copy/fsync/replace (or
-        # after an initial eject failure), and return ownership only when that
-        # succeeds. Otherwise leave the card with the PC: recoverable and much
-        # safer than corrupting it under a mounted host filesystem.
-        if volume is not None and not unmounted:
-            try:
-                _eject_volume(volume)
-                unmounted = True
-            except BaseException as cleanup:
-                raise RuntimeError(
-                    f"app install failed and {volume} could not be safely unmounted; "
-                    "SD remains assigned to the PC. Close open files, safely eject "
-                    "the volume, then return the SD to MAIN"
-                ) from primary
-        # If no volume ever appeared, there is no mounted filesystem to
-        # protect: return the mux to MAIN instead of stranding it with the PC.
-        # Once a volume did appear, retain the stricter eject-before-return
-        # rule above to avoid corruption.
-        if pc_selected and (unmounted or volume is None):
+        # fsync above drains the file; allow the removable-volume stack to
+        # finish its bookkeeping before moving the hardware mux.  Do not ask
+        # Windows to eject/unmount this reader: ownership is controlled by the
+        # FreeWili h\x\k command, and Windows eject races that handoff.
+        time.sleep(SD_HANDOFF_SETTLE_SECONDS)
+    finally:
+        if pc_selected:
             _set_sd_host(port, False)
-        raise
-    else:
-        _set_sd_host(port, False)
+    if volume is not None:
         print(f"installed {source.name} to {destination}")
 
 def packbits_decode(data, units):
