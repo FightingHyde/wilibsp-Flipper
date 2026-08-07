@@ -126,6 +126,18 @@ BSP was harvested from. They are also recorded in `docs/hardware/facts.md`.
    the linker's PSRAM region starts at that same address, so a raw pointer
    aliases whatever the linker placed there. Note `arm-none-eabi-size` folds
    PSRAM into `bss`; use `size -A` to read the real SRAM figure.
+   **Caveat for RAM apps (`no_flash`):** `__uninitialized_psram` emits a
+   `.psram_noload` section, and ld gives it a load address by continuing from
+   the previous section's — which in a `no_flash` build is SRAM, because the
+   SDK aliases `PSRAM_STORE` to `RAM`. The resulting phantom load range runs
+   off the end of SRAM and **picotool refuses to emit the UF2**
+   (`Memory segment ... is outside of valid address range`), even though the
+   segment carries zero file bytes. A flash build hides this by putting the
+   phantom range in flash. Until picotool stops range-checking zero-length
+   segments, a `no_flash` app cannot use `__uninitialized_psram` at all; either
+   reserve a fixed window (see `bsp/agentio/agentio.c`, which does this with a
+   bounds check against `__psram_end__`) or strip `.psram_noload` from the ELF
+   before the UF2 step.
    250 MHz is the DEFAULT (audio-optimal: NAU88C10 MCLK = clk_sys/61 = 4.0984 MHz
    ~ 16 kHz fs). An app may bring the board up at another even-MHz clock via
    board_init_clk(khz) — the DVI demo uses 252 MHz for an exact 25.2 MHz pixel
