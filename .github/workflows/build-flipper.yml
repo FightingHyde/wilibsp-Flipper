@@ -13,10 +13,55 @@ jobs:
           git clone --branch 2.3.0 --depth 1 https://github.com/raspberrypi/pico-sdk.git ~/pico-sdk
           cd ~/pico-sdk && git submodule update --init
           echo "PICO_SDK_PATH=$HOME/pico-sdk" >> $GITHUB_ENV
+      - run: mkdir -p apps/flipper_zero
       - run: |
-          mkdir -p apps/flipper_zero
-          printf 'cmake_minimum_required(VERSION 3.20)\nset(APP_NAME "FlipperZero")\nset(APP_VERSION "001")\nfw2_display_app(${APP_NAME})\ntarget_sources(${APP_NAME} PRIVATE flipper_app.c)\ntarget_link_libraries(${APP_NAME} PRIVATE freewili2_bsp)\n' > apps/flipper_zero/CMakeLists.txt
-          printf '#include "fw2.h"\n#include <FreeRTOS.h>\n#include <task.h>\nstatic TaskHandle_t furi_task = NULL;\nstatic void furi_task_entry(void* pvParameters) {\n    (void)pvParameters;\n    while(1) { vTaskDelay(pdMS_TO_TICKS(1000)); }\n}\nint flipper_app_main(fw2_app_ctx_t* ctx) {\n    (void)ctx;\n    xTaskCreateAffinitySet(furi_task_entry, "FuriOS", 8192, NULL,\n        configMAX_PRIORITIES - 2, (UBaseType_t)1, &furi_task);\n    return 0;\n}\nvoid flipper_app_tick(fw2_app_ctx_t* ctx) {\n    if(fw2_input_pressed(FW2_BTN_HOME) && fw2_input_held(FW2_BTN_HOME, 1000))\n        fw2_app_quit(ctx);\n}\nvoid flipper_app_exit(void) {\n    if(furi_task) vTaskDelete(furi_task);\n}\nFW2_APP_REGISTER(\n    .name = "Flipper Zero",\n    .version = "001",\n    .author = "Community",\n    .main = flipper_app_main,\n    .tick = flipper_app_tick,\n    .exit = flipper_app_exit,\n);\n' > apps/flipper_zero/flipper_app.c
+          echo 'cmake_minimum_required(VERSION 3.20)' > apps/flipper_zero/CMakeLists.txt
+          echo 'set(APP_NAME "FlipperZero")' >> apps/flipper_zero/CMakeLists.txt
+          echo 'set(APP_VERSION "001")' >> apps/flipper_zero/CMakeLists.txt
+          echo 'fw2_display_app(${APP_NAME})' >> apps/flipper_zero/CMakeLists.txt
+          echo 'target_sources(${APP_NAME} PRIVATE flipper_app.c)' >> apps/flipper_zero/CMakeLists.txt
+          echo 'target_link_libraries(${APP_NAME} PRIVATE freewili2_bsp)' >> apps/flipper_zero/CMakeLists.txt
+      - run: |
+          echo '#include "fw2.h"' > apps/flipper_zero/flipper_app.c
+          echo '#include <FreeRTOS.h>' >> apps/flipper_zero/flipper_app.c
+          echo '#include <task.h>' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'static TaskHandle_t furi_task = NULL;' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'static void furi_task_entry(void* pvParameters) {' >> apps/flipper_zero/flipper_app.c
+          echo '    (void)pvParameters;' >> apps/flipper_zero/flipper_app.c
+          echo '    while(1) { vTaskDelay(pdMS_TO_TICKS(1000)); }' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'int flipper_app_main(fw2_app_ctx_t* ctx) {' >> apps/flipper_zero/flipper_app.c
+          echo '    (void)ctx;' >> apps/flipper_zero/flipper_app.c
+          echo '    xTaskCreateAffinitySet(furi_task_entry, "FuriOS", 8192, NULL,' >> apps/flipper_zero/flipper_app.c
+          echo '        configMAX_PRIORITIES - 2, (UBaseType_t)1, &furi_task);' >> apps/flipper_zero/flipper_app.c
+          echo '    return 0;' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'void flipper_app_tick(fw2_app_ctx_t* ctx) {' >> apps/flipper_zero/flipper_app.c
+          echo '    if(fw2_input_pressed(FW2_BTN_HOME) && fw2_input_held(FW2_BTN_HOME, 1000))' >> apps/flipper_zero/flipper_app.c
+          echo '        fw2_app_quit(ctx);' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'void flipper_app_exit(void) {' >> apps/flipper_zero/flipper_app.c
+          echo '    if(furi_task) vTaskDelete(furi_task);' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'FW2_APP_REGISTER(' >> apps/flipper_zero/flipper_app.c
+          echo '    .name = "Flipper Zero",' >> apps/flipper_zero/flipper_app.c
+          echo '    .version = "0.1.0",' >> apps/flipper_zero/flipper_app.c
+          echo '    .author = "Community",' >> apps/flipper_zero/flipper_app.c
+          echo '    .main = flipper_app_main,' >> apps/flipper_zero/flipper_app.c
+          echo '    .tick = flipper_app_tick,' >> apps/flipper_zero/flipper_app.c
+          echo '    .exit = flipper_app_exit,' >> apps/flipper_zero/flipper_app.c
+          echo ');' >> apps/flipper_zero/flipper_app.c
+      - run: |
+          echo "=== CMakeLists.txt ==="
+          cat apps/flipper_zero/CMakeLists.txt
+          echo "=== VERSION line ==="
+          grep "APP_VERSION" apps/flipper_zero/CMakeLists.txt
       - run: |
           echo "" >> CMakeLists.txt
           echo "add_subdirectory(apps/flipper_zero)" >> CMakeLists.txt
