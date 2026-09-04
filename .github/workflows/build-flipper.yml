@@ -26,98 +26,61 @@ jobs:
           git submodule update --init
           echo "PICO_SDK_PATH=$HOME/pico-sdk" >> $GITHUB_ENV
           
-      - name: Create Flipper app files FIRST
+      - name: Create app directory
+        run: mkdir -p apps/flipper_zero/furi_port
+          
+      - name: Create CMakeLists.txt
         run: |
-          # Create directory structure
-          mkdir -p apps/flipper_zero/furi_port
+          echo 'cmake_minimum_required(VERSION 3.20)' > apps/flipper_zero/CMakeLists.txt
+          echo 'set(APP_NAME "FlipperZero")' >> apps/flipper_zero/CMakeLists.txt
+          echo 'set(APP_VERSION "0.1.0")' >> apps/flipper_zero/CMakeLists.txt
+          echo 'fw2_display_app(${APP_NAME})' >> apps/flipper_zero/CMakeLists.txt
+          echo '' >> apps/flipper_zero/CMakeLists.txt
+          echo 'target_sources(${APP_NAME} PRIVATE' >> apps/flipper_zero/CMakeLists.txt
+          echo '    flipper_app.c' >> apps/flipper_zero/CMakeLists.txt
+          echo ')' >> apps/flipper_zero/CMakeLists.txt
+          echo '' >> apps/flipper_zero/CMakeLists.txt
+          echo 'target_link_libraries(${APP_NAME} PRIVATE freewili2_bsp)' >> apps/flipper_zero/CMakeLists.txt
           
-          # Create CMakeLists.txt
-          cat > apps/flipper_zero/CMakeLists.txt << 'EOF'
-cmake_minimum_required(VERSION 3.20)
-set(APP_NAME "FlipperZero")
-set(APP_VERSION "0.1.0")
-fw2_display_app(${APP_NAME})
-
-file(GLOB FURI_CORE
-    ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core/furi/core/*.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core/furi/evt/*.c
-)
-
-target_sources(${APP_NAME} PRIVATE
-    flipper_app.c
-    furi_port/furi_hal_fw2.c
-    ${FURI_CORE}
-)
-
-target_include_directories(${APP_NAME} PRIVATE
-    .
-    furi_port
-    ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core
-    ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core/furi
-)
-
-target_compile_definitions(${APP_NAME} PRIVATE
-    APP_NAME="${APP_NAME}"
-    APP_VERSION="${APP_VERSION}"
-    FURI_HAL_TARGET_FW2=1
-)
-
-target_link_libraries(${APP_NAME} PRIVATE freewili2_bsp)
-EOF
+      - name: Create main app file
+        run: |
+          echo '#include "fw2.h"' > apps/flipper_zero/flipper_app.c
+          echo '#include <furi/core/thread.h>' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'static TaskHandle_t furi_task = NULL;' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'static void furi_task_entry(void* pvParameters) {' >> apps/flipper_zero/flipper_app.c
+          echo '    while(1) { vTaskDelay(pdMS_TO_TICKS(1000)); }' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'int flipper_app_main(fw2_app_ctx_t* ctx) {' >> apps/flipper_zero/flipper_app.c
+          echo '    (void)ctx;' >> apps/flipper_zero/flipper_app.c
+          echo '    xTaskCreateAffinitySet(furi_task_entry, "FuriOS", 8192, NULL,' >> apps/flipper_zero/flipper_app.c
+          echo '        configMAX_PRIORITIES - 2, (UBaseType_t)1, &furi_task);' >> apps/flipper_zero/flipper_app.c
+          echo '    return 0;' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'void flipper_app_tick(fw2_app_ctx_t* ctx) {' >> apps/flipper_zero/flipper_app.c
+          echo '    if(fw2_input_pressed(FW2_BTN_HOME) && fw2_input_held(FW2_BTN_HOME, 1000))' >> apps/flipper_zero/flipper_app.c
+          echo '        fw2_app_quit(ctx);' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'void flipper_app_exit(void) {' >> apps/flipper_zero/flipper_app.c
+          echo '    if(furi_task) vTaskDelete(furi_task);' >> apps/flipper_zero/flipper_app.c
+          echo '}' >> apps/flipper_zero/flipper_app.c
+          echo '' >> apps/flipper_zero/flipper_app.c
+          echo 'FW2_APP_REGISTER(' >> apps/flipper_zero/flipper_app.c
+          echo '    .name = "Flipper Zero",' >> apps/flipper_zero/flipper_app.c
+          echo '    .version = "0.1.0",' >> apps/flipper_zero/flipper_app.c
+          echo '    .author = "Community",' >> apps/flipper_zero/flipper_app.c
+          echo '    .icon = NULL,' >> apps/flipper_zero/flipper_app.c
+          echo '    .main = flipper_app_main,' >> apps/flipper_zero/flipper_app.c
+          echo '    .tick = flipper_app_tick,' >> apps/flipper_zero/flipper_app.c
+          echo '    .exit = flipper_app_exit,' >> apps/flipper_zero/flipper_app.c
+          echo ');' >> apps/flipper_zero/flipper_app.c
           
-          # Create main app file
-          cat > apps/flipper_zero/flipper_app.c << 'EOF'
-#include "fw2.h"
-#include <furi/core/thread.h>
-
-static TaskHandle_t furi_task = NULL;
-
-static void furi_task_entry(void* pvParameters) {
-    while(1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
-
-int flipper_app_main(fw2_app_ctx_t* ctx) {
-    (void)ctx;
-    BaseType_t result = xTaskCreateAffinitySet(
-        furi_task_entry, "FuriOS", 8192, NULL, 
-        configMAX_PRIORITIES - 2, (UBaseType_t)1, &furi_task);
-    if(result != pdPASS) return -1;
-    return 0;
-}
-
-void flipper_app_tick(fw2_app_ctx_t* ctx) {
-    if(fw2_input_pressed(FW2_BTN_HOME) && fw2_input_held(FW2_BTN_HOME, 1000)) {
-        fw2_app_quit(ctx);
-    }
-}
-
-void flipper_app_exit(void) {
-    if(furi_task) vTaskDelete(furi_task);
-}
-
-FW2_APP_REGISTER(
-    .name = "Flipper Zero",
-    .version = "0.1.0",
-    .author = "Community",
-    .icon = NULL,
-    .main = flipper_app_main,
-    .tick = flipper_app_tick,
-    .exit = flipper_app_exit,
-);
-EOF
-          
-          # Create minimal HAL file
-          mkdir -p apps/flipper_zero/furi_port
-          cat > apps/flipper_zero/furi_port/furi_hal_fw2.c << 'EOF'
-#include "fw2.h"
-void furi_hal_init(void) {}
-void furi_hal_deinit(void) {}
-EOF
-          
-          # Verify files exist
-          ls -la apps/flipper_zero/
+      - name: Verify files
+        run: ls -la apps/flipper_zero/
           
       - name: Build app
         run: |
