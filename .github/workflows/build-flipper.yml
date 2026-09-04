@@ -1,7 +1,7 @@
 name: Build Flipper App
 
 on: 
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
 
 jobs:
   build:
@@ -9,7 +9,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: freewili/wilibsp
           submodules: recursive
@@ -115,7 +115,7 @@ jobs:
           python3 tools/fw.py build apps/flipper_zero
           
       - name: Upload UF2
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: FlipperZero-App
           path: build/apps/flipper_zero/*.uf2
