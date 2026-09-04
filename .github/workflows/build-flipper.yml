@@ -28,22 +28,24 @@ jobs:
           
       - name: Create Flipper app
         run: |
-          # Create app directory
           mkdir -p apps/flipper_zero
           
-          # Create CMakeLists.txt
-          cat > apps/flipper_zero/CMakeLists.txt << 'ENDOFFILE'
-cmake_minimum_required(VERSION 3.20)
+          # Create CMakeLists.txt using Python
+          python3 << 'PYEOF'
+cmake_content = '''cmake_minimum_required(VERSION 3.20)
 set(APP_NAME "FlipperZero")
 set(APP_VERSION "0.1.0")
 fw2_display_app(${APP_NAME})
 target_sources(${APP_NAME} PRIVATE flipper_app.c)
 target_link_libraries(${APP_NAME} PRIVATE freewili2_bsp)
-ENDOFFILE
+'''
+          with open('apps/flipper_zero/CMakeLists.txt', 'w') as f:
+              f.write(cmake_content)
+          PYEOF
           
-          # Create app source
-          cat > apps/flipper_zero/flipper_app.c << 'ENDOFFILE'
-#include "fw2.h"
+          # Create app source using Python
+          python3 << 'PYEOF'
+app_content = '''#include "fw2.h"
 #include <FreeRTOS.h>
 #include <task.h>
 
@@ -81,16 +83,16 @@ FW2_APP_REGISTER(
     .tick = flipper_app_tick,
     .exit = flipper_app_exit,
 );
-ENDOFFILE
+'''
+          with open('apps/flipper_zero/flipper_app.c', 'w') as f:
+              f.write(app_content)
+          PYEOF
           
       - name: Add app to main CMakeLists.txt
         run: |
-          # Add app to main build
           echo "" >> CMakeLists.txt
           echo "# Flipper Zero App" >> CMakeLists.txt
           echo "add_subdirectory(apps/flipper_zero)" >> CMakeLists.txt
-          
-          # Verify
           tail -5 CMakeLists.txt
           
       - name: Build app
