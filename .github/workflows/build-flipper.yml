@@ -1,0 +1,121 @@
+name: Build Flipper App
+
+on: 
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          repository: freewili/wilibsp
+          submodules: recursive
+          
+      - name: Install build tools
+        run: |
+          sudo apt update
+          sudo apt install -y cmake gcc-arm-none-eabi ninja-build python3 git
+          
+      - name: Setup Pico SDK
+        run: |
+          git clone --branch 2.3.0 --depth 1 https://github.com/raspberrypi/pico-sdk.git ~/pico-sdk
+          cd ~/pico-sdk
+          git submodule update --init
+          echo "PICO_SDK_PATH=$HOME/pico-sdk" >> $GITHUB_ENV
+          
+      - name: Create Flipper app structure
+        run: |
+          mkdir -p apps/flipper_zero/furi_port
+          
+      - name: Create CMakeLists.txt
+        run: |
+          cat > apps/flipper_zero/CMakeLists.txt << 'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          set(APP_NAME "FlipperZero")
+          set(APP_VERSION "0.1.0")
+          fw2_display_app(${APP_NAME})
+          
+          file(GLOB FURI_CORE
+              ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core/furi/core/*.c
+              ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core/furi/evt/*.c
+          )
+          
+          target_sources(${APP_NAME} PRIVATE
+              flipper_app.c
+              furi_port/furi_hal_fw2.c
+              ${FURI_CORE}
+          )
+          
+          target_include_directories(${APP_NAME} PRIVATE
+              .
+              furi_port
+              ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core
+              ${CMAKE_CURRENT_SOURCE_DIR}/flipper_core/furi
+          )
+          
+          target_compile_definitions(${APP_NAME} PRIVATE
+              APP_NAME="${APP_NAME}"
+              APP_VERSION="${APP_VERSION}"
+              FURI_HAL_TARGET_FW2=1
+          )
+          
+          target_link_libraries(${APP_NAME} PRIVATE freewili2_bsp)
+          EOF
+          
+      - name: Create main app file
+        run: |
+          cat > apps/flipper_zero/flipper_app.c << 'EOF'
+          #include "fw2.h"
+          #include <furi/core/thread.h>
+          
+          static TaskHandle_t furi_task = NULL;
+          
+          static void furi_task_entry(void* pvParameters) {
+              while(1) {
+                  vTaskDelay(pdMS_TO_TICKS(1000));
+              }
+          }
+          
+          int flipper_app_main(fw2_app_ctx_t* ctx) {
+              (void)ctx;
+              BaseType_t result = xTaskCreateAffinitySet(
+                  furi_task_entry, "FuriOS", 8192, NULL, 
+                  configMAX_PRIORITIES - 2, (UBaseType_t)1, &furi_task);
+              if(result != pdPASS) return -1;
+              return 0;
+          }
+          
+          void flipper_app_tick(fw2_app_ctx_t* ctx) {
+              if(fw2_input_pressed(FW2_BTN_HOME) && fw2_input_held(FW2_BTN_HOME, 1000)) {
+                  fw2_app_quit(ctx);
+              }
+          }
+          
+          void flipper_app_exit(void) {
+              if(furi_task) vTaskDelete(furi_task);
+          }
+          
+          FW2_APP_REGISTER(
+              .name = "Flipper Zero",
+              .version = "0.1.0",
+              .author = "Community",
+              .icon = NULL,
+              .main = flipper_app_main,
+              .tick = flipper_app_tick,
+              .exit = flipper_app_exit,
+          );
+          EOF
+          
+      - name: Build app
+        run: |
+          export PICO_SDK_PATH=$HOME/pico-sdk
+          python3 tools/fw.py build apps/flipper_zero
+          
+      - name: Upload UF2
+        uses: actions/upload-artifact@v3
+        with:
+          name: FlipperZero-App
+          path: build/apps/flipper_zero/*.uf2
