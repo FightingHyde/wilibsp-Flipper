@@ -75,7 +75,7 @@ jobs:
           echo 'target_link_libraries(FlipperZero PRIVATE freewili2_bsp)' >> apps/flipper_zero/CMakeLists.txt
       - run: |
           export PICO_SDK_PATH=$HOME/pico-sdk
-          python3 tools/fw.py build apps/flipper_zero
+          python3 tools/fw.py build FlipperZero
       - uses: actions/upload-artifact@v4
         with:
           name: FlipperZero-App
