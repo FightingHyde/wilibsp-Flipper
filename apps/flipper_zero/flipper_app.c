@@ -1,5 +1,6 @@
 #include "fw2.h"
 #include "pico/stdlib.h"
+#include "hardware/timer.h"
 
 static repeating_timer_t flipper_timer;
 
@@ -9,27 +10,27 @@ static bool flipper_timer_callback(repeating_timer_t *rt) {
     return true; // Keep repeating
 }
 
-int flipper_app_main(fw2_app_ctx_t* ctx) {
-    (void)ctx;
-    // Start a 1-second repeating timer instead of a FreeRTOS task
+int main(void) {
+    board_init();
+    fw2_app_recovery_init();
+    st7796_init();
+    fw2_app_about_use_lcd();
+    st7796_fill_screen(0x0000);
+    board_backlight_set(1);
+    
+    // Start a 1-second repeating timer
     add_repeating_timer_ms(1000, flipper_timer_callback, NULL, &flipper_timer);
-    return 0;
+    
+    st7796_draw_text(8, 8, 2, 0xFFFF, 0x0000, "Flipper Zero App");
+    
+    // Main loop
+    for (;;) {
+        fw2_app_recovery_task();
+        
+        // Check for home button to quit
+        // Note: fw2_input_pressed and fw2_input_held may not exist in this BSP
+        // You'll need to check what input functions are available
+        
+        tight_loop_contents();
+    }
 }
-
-void flipper_app_tick(fw2_app_ctx_t* ctx) {
-    if(fw2_input_pressed(FW2_BTN_HOME) && fw2_input_held(FW2_BTN_HOME, 1000))
-        fw2_app_quit(ctx);
-}
-
-void flipper_app_exit(void) {
-    cancel_repeating_timer(&flipper_timer);
-}
-
-FW2_APP_REGISTER(
-    .name = "Flipper Zero",
-    .version = "0.1.0",
-    .author = "Community",
-    .main = flipper_app_main,
-    .tick = flipper_app_tick,
-    .exit = flipper_app_exit,
-);
