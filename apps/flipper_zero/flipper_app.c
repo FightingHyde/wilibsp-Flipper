@@ -1,20 +1,18 @@
 #include "fw2.h"
-#include <FreeRTOS.h>
-#include <task.h>
+#include "pico/stdlib.h"
 
-static TaskHandle_t furi_task = NULL;
+static repeating_timer_t flipper_timer;
 
-static void furi_task_entry(void* pvParameters) {
-    (void)pvParameters;
-    while(1) { 
-        vTaskDelay(pdMS_TO_TICKS(1000)); 
-    }
+static bool flipper_timer_callback(repeating_timer_t *rt) {
+    (void)rt;
+    // Periodic work here (runs every 1000ms)
+    return true; // Keep repeating
 }
 
 int flipper_app_main(fw2_app_ctx_t* ctx) {
     (void)ctx;
-    xTaskCreateAffinitySet(furi_task_entry, "FuriOS", 8192, NULL,
-        configMAX_PRIORITIES - 2, (UBaseType_t)1, &furi_task);
+    // Start a 1-second repeating timer instead of a FreeRTOS task
+    add_repeating_timer_ms(1000, flipper_timer_callback, NULL, &flipper_timer);
     return 0;
 }
 
@@ -24,7 +22,7 @@ void flipper_app_tick(fw2_app_ctx_t* ctx) {
 }
 
 void flipper_app_exit(void) {
-    if(furi_task) vTaskDelete(furi_task);
+    cancel_repeating_timer(&flipper_timer);
 }
 
 FW2_APP_REGISTER(
