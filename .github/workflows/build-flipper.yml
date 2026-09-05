@@ -17,7 +17,7 @@ jobs:
       - run: |
           echo 'cmake_minimum_required(VERSION 3.20)' > apps/flipper_zero/CMakeLists.txt
           echo 'set(APP_NAME "FlipperZero")' >> apps/flipper_zero/CMakeLists.txt
-          echo 'set(APP_VERSION 001)' >> apps/flipper_zero/CMakeLists.txt
+          echo 'set(APP_VERSION 111)' >> apps/flipper_zero/CMakeLists.txt
           echo 'fw2_display_app(${APP_NAME})' >> apps/flipper_zero/CMakeLists.txt
           echo 'target_sources(${APP_NAME} PRIVATE flipper_app.c)' >> apps/flipper_zero/CMakeLists.txt
           echo 'target_link_libraries(${APP_NAME} PRIVATE freewili2_bsp)' >> apps/flipper_zero/CMakeLists.txt
