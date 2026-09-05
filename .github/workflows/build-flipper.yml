@@ -63,8 +63,16 @@ jobs:
           echo "=== VERSION line ==="
           grep "APP_VERSION" apps/flipper_zero/CMakeLists.txt
       - run: |
-          echo "" >> CMakeLists.txt
-          echo "add_subdirectory(apps/flipper_zero)" >> CMakeLists.txt
+          echo 'cmake_minimum_required(VERSION 3.20)' > apps/flipper_zero/CMakeLists.txt
+          echo '' >> apps/flipper_zero/CMakeLists.txt
+          echo 'fw2_display_app(FlipperZero' >> apps/flipper_zero/CMakeLists.txt
+          echo '    NAME "Flipper Zero"' >> apps/flipper_zero/CMakeLists.txt
+          echo '    VERSION "111"' >> apps/flipper_zero/CMakeLists.txt
+          echo '    DESCRIPTION "Flipper Zero compatible app"' >> apps/flipper_zero/CMakeLists.txt
+          echo ')' >> apps/flipper_zero/CMakeLists.txt
+          echo '' >> apps/flipper_zero/CMakeLists.txt
+          echo 'target_sources(FlipperZero PRIVATE flipper_app.c)' >> apps/flipper_zero/CMakeLists.txt
+          echo 'target_link_libraries(FlipperZero PRIVATE freewili2_bsp)' >> apps/flipper_zero/CMakeLists.txt
       - run: |
           export PICO_SDK_PATH=$HOME/pico-sdk
           python3 tools/fw.py build apps/flipper_zero
